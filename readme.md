@@ -2,8 +2,6 @@
 
 ✨ 浏览器本地 Verlet 布料物理沙盒
 
-在线演示：[http://rin.anetwork.net.cn:23456/](http://rin.anetwork.net.cn:23456/)
-
 所有运算在浏览器本地完成，图片不上传服务器。
 
 ✅ 功能
