@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>星糖凛的布料解压站</title>
+<link rel="stylesheet" href="https://cdn.staticfile.org/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="orientation-warning">
+  <i class="fa-solid fa-mobile-screen-button"></i>
+  <h2 data-i18n="orientation_title">请旋转屏幕</h2>
+  <p data-i18n="orientation_desc">为了获得更好的解压体验<br>请将手机横屏使用</p>
+</div>
+
+<div class="wrap">
+  
+  <div class="canvasWrap">
+    <div id="bgLayer" style="position: absolute; inset: 0; z-index: 0; background-color: #ffffff; transition: background-color 0.3s;">
+        <img id="bgImage" style="position: absolute; top: 50%; left: 50%; transform-origin: center; pointer-events: none; max-width: none; max-height: none; display: none;">
+    </div>
+
+    <canvas id="previewCanvas" width="520" height="520"></canvas>
+    <div id="threeContainer"></div>
+    
+    <div id="dropZone">
+      <i class="fa-solid fa-cloud-arrow-up"></i>
+      <p data-i18n="drag_drop_hint">松开鼠标上传图片</p>
+    </div>
+
+    <button id="backToEditBtn" class="float-back-btn" style="display:none;" data-i18n="back_to_edit">⟵ 返回编辑</button>
+
+    <div class="canvas-info">
+      <div class="credits" data-i18n="canvas_credits">开源及字体致谢：Three.js | 包图小白体 | 极影毁片和圆 | 宅在家自动笔体</div>
+      <div class="disclaimer" data-i18n="sign_text">
+        上传的图片只会在浏览器内处理<br>
+        请勿使用侵犯第三方权利的图片或素材<br>
+        在法律允许的范围内，开发者不对使用本应用造成的损失承担责任
+      </div>
+      <div class="copyright">© 2020-2026 星糖凛HoshikageRin</div>
+    </div>
+  </div>
+
+  <div id="mobileBackdrop" class="mobile-backdrop"></div>
+
+  <button id="mobileUiToggle" class="mobile-only-btn toggle-btn">
+    <i class="fa-solid fa-sliders"></i>
+  </button>
+
+  <div id="ui">
+    <div class="ui-header">
+      <div class="lang-switch">
+        <i class="fa-solid fa-globe"></i>
+        <select id="langSelect">
+          <option value="zh">简体中文</option>
+          <option value="zh-TW">繁體中文</option>
+          <option value="en">English</option>
+        </select>
+      </div>
+      <button id="mobileUiClose" class="mobile-only-btn close-btn">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+
+    <h1 class="main-title" data-i18n="main_title">星糖凛的<br>布料解压站</h1>
+
+    <!-- ================= 1. 基础操作 ================= -->
+    <details class="ui-group" open>
+      <summary><i class="fa-solid fa-gear" style="margin-right: 8px;"></i><span data-i18n="basic_title">基础操作</span></summary>
+      <div class="ui-group-content">
+        <label class="file-upload-btn">
+          <input type="file" id="fileInput" accept="image/*">
+          <i class="fa-solid fa-cloud-arrow-up"></i> <span data-i18n="upload_btn">选择或拖入图片</span>
+        </label>
+        <div class="help-text">
+          <div><i class="fa-solid fa-circle" style="color:#f3a3a3"></i> <span data-i18n="help_pin">画笔：固定布料</span></div>
+          <div><i class="fa-solid fa-computer-mouse"></i> <span data-i18n="help_drag">拖拽/刀割：生成后交互</span></div>
+        </div>
+        
+        <div class="btn-row" style="margin-top: 15px;">
+          <button id="btnPinStroke" class="btn-pinstroke btn-active"><i class="fa-solid fa-pen"></i> <span data-i18n="btn_pinstroke">画线</span></button>
+          <button id="btnDecor" class="btn-normal"><i class="fa-solid fa-star"></i> <span data-i18n="btn_decor">放装饰</span></button>
+          <button id="btnEraser" class="btn-eraser"><i class="fa-solid fa-eraser"></i> <span data-i18n="btn_eraser">橡皮擦</span></button>
+        </div>
+
+        <!-- ✅ 全新建构的装饰面板 -->
+         <div class="ctrl" style="margin-bottom: 10px;">
+          <label class="file-upload-btn" style="background: #eff6ff; color: var(--text-main); border: 1px solid var(--border); box-shadow: none;">
+            <input type="file" id="decorModelInput" accept=".glb,.gltf">
+            <i class="fa-solid fa-cube"></i> <span data-i18n="import_decor_model">导入自定义装饰 (.glb)</span>
+          </label>
+        </div>
+        <div id="decorEditPanel" style="display:none; background: rgba(255,255,255,0.3); padding: 12px; border-radius: 12px; margin-bottom: 14px; border: 1px dashed rgba(255,183,197,0.6);">
+          
+          <!-- 上半部：画笔默认设置 -->
+          <div id="decorDefaultSettings">
+            <div class="ctrl" style="margin-bottom: 10px;">
+              <label for="decorTypeSelect" style="color: var(--primary); font-weight: bold;" data-i18n="decor_title">装饰类型</label>
+              <select id="decorTypeSelect">
+                <option value="star" selected data-i18n="decor_star">⭐ 小星星</option>
+                <option value="heart" data-i18n="decor_heart">💖 小爱心</option>
+                <option value="sphere" data-i18n="decor_sphere">🔴 小圆珠</option>
+                <option value="cloud" data-i18n="decor_cloud">☁️ 小云朵</option>
+                <option value="bow" data-i18n="decor_bow">🎀 蝴蝶结</option>
+                <option value="flower" data-i18n="decor_flower">🌼 小雏菊</option>
+                <option value="paw" data-i18n="decor_paw">🐾 猫爪</option>
+                <option value="drop" data-i18n="decor_drop">💧 小水滴</option>
+                <option value="cherry" data-i18n="decor_cherry">🍒 小樱桃</option>
+                <option value="moon" data-i18n="decor_moon">🌙 小月亮</option>
+                <option value="crown" data-i18n="decor_crown">👑 小皇冠</option>
+                <option value="button" data-i18n="decor_button">🔘 小纽扣</option>
+                <option value="custom_upload" data-i18n="decor_custom_upload">📦 上传的自定义模型</option>
+              </select>
+            </div>
+            <div class="ctrl" style="margin-bottom: 10px;">
+              <label for="decorMatSelect" style="color: var(--primary); font-weight: bold;" data-i18n="decor_mat">材质</label>
+              <select id="decorMatSelect">
+                <option value="plastic" data-i18n="mat_plastic">哑光塑料</option>
+                <option value="jelly" data-i18n="mat_jelly">果冻透明</option>
+                <option value="metal" data-i18n="mat_metal">金属高光</option>
+                <option value="plush" data-i18n="mat_plush">毛绒质感</option>
+                <option value="holographic" data-i18n="mat_holo">镭射反光</option>
+              </select>
+            </div>
+            <div class="ctrl" style="margin-bottom: 10px;">
+              <label for="decorWeightSelect" style="color: var(--primary); font-weight: bold;" data-i18n="decor_weight">重量</label>
+              <select id="decorWeightSelect">
+                <option value="light" data-i18n="weight_light">轻 (漂浮)</option>
+                <option value="medium" selected data-i18n="weight_medium">中 (贴合)</option>
+                <option value="heavy" data-i18n="weight_heavy">重 (下坠)</option>
+              </select>
+            </div>
+            <div class="ctrl" style="margin-bottom: 0;">
+              <label for="decorSizeSlider" style="color: var(--primary); font-weight: bold;" data-i18n="decor_size">大小</label>
+              <span id="decorSizeValue">1.0</span>
+              <input id="decorSizeSlider" type="range" min="0.5" max="2.0" step="0.1" value="1.0">
+            </div>
+          </div>
+
+          <!-- 下半部：选中某装饰后的独立编辑面板 -->
+          <div id="decorSelectedSettings" style="display: none; padding-top: 10px; border-top: 2px dashed rgba(255,183,197,0.4); margin-top: 10px;">
+            <div class="ctrl-title" style="margin-top: 0; border-bottom: none; color: #D1496B;" data-i18n="editing_decor">✨ 正在编辑选中装饰</div>
+            <div class="ctrl" style="margin-bottom: 10px;">
+              <label data-i18n="decor_type">更改类型</label>
+              <select id="selDecorType">
+                <option value="star" data-i18n="decor_star">⭐ 小星星</option>
+                <option value="heart" data-i18n="decor_heart">💖 小爱心</option>
+                <option value="sphere" data-i18n="decor_sphere">🔴 小圆珠</option>
+                <option value="cloud" data-i18n="decor_cloud">☁️ 小云朵</option>
+                <option value="bow" data-i18n="decor_bow">🎀 蝴蝶结</option>
+                <option value="flower" data-i18n="decor_flower">🌼 小雏菊</option>
+                <option value="paw" data-i18n="decor_paw">🐾 猫爪</option>
+                <option value="drop" data-i18n="decor_drop">💧 小水滴</option>
+                <option value="cherry" data-i18n="decor_cherry">🍒 小樱桃</option>
+                <option value="moon" data-i18n="decor_moon">🌙 小月亮</option>
+                <option value="crown" data-i18n="decor_crown">👑 小皇冠</option>
+                <option value="button" data-i18n="decor_button">🔘 小纽扣</option>
+                <option value="custom_upload" data-i18n="decor_custom_upload">📦 上传的自定义模型</option>
+              </select>
+            </div>
+            <div class="ctrl" style="margin-bottom: 10px;">
+              <label data-i18n="decor_mat">更改材质</label>
+              <select id="selDecorMat">
+                <option value="plastic" data-i18n="mat_plastic">哑光塑料</option>
+                <option value="jelly" data-i18n="mat_jelly">果冻透明</option>
+                <option value="metal" data-i18n="mat_metal">金属高光</option>
+                <option value="plush" data-i18n="mat_plush">毛绒质感</option>
+                <option value="holographic" data-i18n="mat_holo">镭射反光</option>
+              </select>
+            </div>
+            <div class="ctrl" style="margin-bottom: 10px;">
+              <label data-i18n="decor_weight">更改重量</label>
+              <select id="selDecorWeight">
+                <option value="light" data-i18n="weight_light">轻 (漂浮)</option>
+                <option value="medium" data-i18n="weight_medium">中 (贴合)</option>
+                <option value="heavy" data-i18n="weight_heavy">重 (下坠)</option>
+              </select>
+            </div>
+            <div class="ctrl" style="margin-bottom: 10px;">
+              <label data-i18n="decor_size">更改大小</label>
+              <span id="selDecorSizeValue">1.0</span>
+              <input id="selDecorSize" type="range" min="0.5" max="2.0" step="0.1" value="1.0">
+            </div>
+            <div class="btn-row" style="margin-bottom: 0;">
+              <button id="btnDeleteSelected" class="btn-danger" style="padding: 8px; font-size: 12px;"><i class="fa-solid fa-trash"></i> <span data-i18n="btn_delete_decor">删除该装饰</span></button>
+            </div>
+            <!-- 选中装饰独立编辑面板中 -->
+            <div class="control-row" id="selDecorColorCtrl">
+              <label data-i18n="decor_color">颜色</label>
+              <input type="color" id="selDecorColor" value="#FFB7C5">
+          </div>
+          </div>
+
+          <div class="btn-row" style="margin-top: 10px; margin-bottom: 0;">
+            <button id="btnClearDecor" class="btn-normal" style="padding: 6px; font-size: 12px; color: #666;" data-i18n="decor_clear">清空所有</button>
+          </div>
+        </div>
+
+        <div class="ctrl" id="eraserModeCtrl" style="display:none;">
+          <label for="eraserModeSelect" data-i18n="eraser_mode">橡皮擦模式</label>
+          <select id="eraserModeSelect">
+            <option value="whole" data-i18n="eraser_whole">整段擦除</option>
+            <option value="partial" data-i18n="eraser_partial">局部擦除</option>
+          </select>
+        </div>
+        <div class="ctrl">
+          <label for="pinRadius"><span data-i18n="pin_radius">红线粗细</span></label>
+          <span id="pinRadiusValue">0.040</span>
+          <input id="pinRadius" type="range" min="0.01" max="0.12" step="0.005" value="0.04">
+        </div>
+        <div class="btn-row">
+          <button id="undoBtn" class="btn-normal" data-i18n="undo">撤销</button>
+          <button id="redoBtn" class="btn-normal" data-i18n="redo">重做</button>
+        </div>
+        <button id="genBtn" class="btn-primary" style="margin-top:10px;"><i class="fa-solid fa-wand-magic-sparkles"></i> <span data-i18n="btn_gen">生成布料</span></button>
+        <button id="pauseBtn" class="btn-normal"><i class="fa-solid fa-pause"></i> <span data-i18n="btn_pause">暂停解算</span></button>
+      </div>
+    </details>
+
+    <!-- ================= 2. 材质与滤镜 ================= -->
+    <details class="ui-group">
+      <summary><i class="fa-solid fa-palette" style="margin-right: 8px;"></i><span data-i18n="mat_title">材质与滤镜</span></summary>
+      <div class="ui-group-content">
+        <div class="ctrl">
+          <label for="materialPreset" data-i18n="mat_preset">材质预设</label>
+          <select id="materialPreset">
+            <option value="custom" data-i18n="mat_preset_custom">自定义</option>
+            <option value="tie_dye" data-i18n="mat_preset_tie_dye">扎染 (柔光)</option>
+            <option value="batik" data-i18n="mat_preset_batik">蜡染 (哑光)</option>
+            <option value="washed_cotton" data-i18n="mat_preset_washed_cotton">水洗棉 (柔和)</option>
+            <option value="polyester" data-i18n="mat_preset_polyester">涤纶 (微光泽)</option>
+            <option value="tr_blend" data-i18n="mat_preset_tr_blend">TR面料 (哑光)</option>
+            <option value="worsted_wool" data-i18n="mat_preset_worsted_wool">精纺毛呢 (吸光)</option>
+            <option value="default" data-i18n="mat_preset_default">默认色彩</option>
+            <option value="cotton" data-i18n="mat_preset_cotton">柔和棉布</option>
+            <option value="silk" data-i18n="mat_preset_silk">反光丝绸</option>
+            <option value="metal" data-i18n="mat_preset_metal">拉丝金属</option>
+            <option value="leather" data-i18n="mat_preset_leather">粗糙皮革</option>
+            <option value="holographic" data-i18n="mat_preset_holographic">全息镭射</option>
+            <option value="gauze" data-i18n="mat_preset_gauze">透明纱网</option>
+            <option value="chiffon" data-i18n="mat_preset_chiffon">轻盈雪纺</option>
+            <option value="glass" data-i18n="mat_preset_glass">玻璃质感</option>
+            <option value="jelly" data-i18n="mat_preset_jelly">果冻质感</option>
+            <option value="film" data-i18n="mat_preset_film">透明保鲜膜</option>
+          </select>
+        </div>
+        <div class="ctrl">
+          <label for="clothColor" data-i18n="base_color">布料基础色</label>
+          <input id="clothColor" type="color" value="#9BCDEC">
+        </div>
+        
+        <div class="ctrl-title"><i class="fa-solid fa-brush"></i> <span data-i18n="tex_filter_title">贴图滤镜</span></div>
+        <div class="ctrl">
+          <label for="textureFilterSelect" data-i18n="tex_filter">滤镜预设</label>
+          <select id="textureFilterSelect">
+            <option value="none" data-i18n="filter_none">原始 (无滤镜)</option>
+            <option value="tie_dye" data-i18n="filter_tie_dye">扎染晕染</option>
+            <option value="batik" data-i18n="filter_batik">蜡染冰裂</option>
+            <option value="silk" data-i18n="filter_silk">丝绸流光</option>
+            <option value="vintage" data-i18n="filter_vintage">复古做旧</option>
+            <option value="denim" data-i18n="filter_denim">牛仔水洗</option>
+            <option value="ink" data-i18n="filter_ink">水墨斑驳</option>
+            <option value="holographic" data-i18n="filter_holographic">镭射反光</option>
+          </select>
+        </div>
+        <div class="ctrl" id="filterStrengthCtrl" style="display:none;">
+          <label for="filterStrength" data-i18n="tex_filter_strength">滤镜强度</label>
+          <span id="filterStrengthValue">0.30</span>
+          <input id="filterStrength" type="range" min="0" max="1" step="0.05" value="0.3">
+        </div>
+
+        <div class="ctrl-title"><i class="fa-solid fa-layer-group"></i> <span data-i18n="pbr_title">物理法线 (PBR)</span></div>
+        <div class="ctrl">
+          <label for="pbrTextureSelect" data-i18n="pbr_tex">程序化纹理</label>
+          <select id="pbrTextureSelect">
+            <option value="none" data-i18n="pbr_none">无</option>
+            <option value="batik" data-i18n="pbr_batik">蜡染 (冰裂纹)</option>
+            <option value="washed_cotton" data-i18n="pbr_washed_cotton">水洗棉 (微绒感)</option>
+            <option value="polyester" data-i18n="pbr_polyester">涤纶 (平滑)</option>
+            <option value="tr_blend" data-i18n="pbr_tr_blend">TR面料 (细斜纹)</option>
+            <option value="worsted_wool" data-i18n="pbr_worsted_wool">精纺毛呢 (紧密斜纹)</option>
+            <option value="stripe" data-i18n="pbr_stripe">横向条纹 (非镂空)</option>
+            <option value="mesh" data-i18n="pbr_mesh">粗网格纱 (镂空)</option>
+            <option value="mesh_solid" data-i18n="pbr_mesh_solid">粗网格纱 (非镂空)</option>
+            <option value="weave" data-i18n="pbr_weave">经典平纹</option>
+            <option value="twill" data-i18n="pbr_twill">斜纹牛仔</option>
+            <option value="knit" data-i18n="pbr_knit">针织毛衣</option>
+            <option value="hex" data-i18n="pbr_hex">六角网孔 (镂空)</option>
+            <option value="hex_solid" data-i18n="pbr_hex_solid">六角网孔 (非镂空)</option>
+            <option value="basket" data-i18n="pbr_basket">编织纹</option>
+            <option value="herringbone" data-i18n="pbr_herringbone">人字纹 (编织)</option>
+            <option value="noise" data-i18n="pbr_noise">纯磨砂/噪波</option>
+            <option value="leather" data-i18n="pbr_leather">细腻皮革</option>
+            <option value="stone" data-i18n="pbr_stone">颗粒砂石</option>
+            <option value="wrinkle" data-i18n="pbr_wrinkle">压花皱纹</option>
+            <option value="diamond" data-i18n="pbr_diamond">菱形格纹</option>
+            <option value="puffyQuilt" data-i18n="pbr_puffy_quilt">蓬松棉被 (纽扣)</option>
+            <option value="vinyl" data-i18n="pbr_vinyl">喷绘布</option>
+            <option value="flax" data-i18n="pbr_flax">亚麻</option>
+            <option value="real_leather" data-i18n="pbr_real_leather">真皮</option>
+            <option value="fluff" data-i18n="pbr_fluff">绒毛</option>
+            <option value="carbon" data-i18n="pbr_carbon">碳纤维</option>
+            <option value="square_weave" data-i18n="pbr_square_weave">方形交错编织纹</option>
+            <option value="corduroy" data-i18n="pbr_corduroy">灯芯绒</option>
+            <option value="cashmere" data-i18n="pbr_cashmere">羊绒</option>
+            <option value="brushed" data-i18n="pbr_noise_brushed">金属拉丝</option>
+            <option value="tie_dye" data-i18n="pbr_tie_dye">扎染晕染</option>
+            <option value="gauze" data-i18n="pbr_gauze">医用纱布</option>
+            <option value="felt" data-i18n="pbr_felt">毛毡</option>
+            <option value="plastic_wrap" data-i18n="pbr_plastic_wrap">保鲜薄膜</option>
+            <option value="rice_paper" data-i18n="pbr_rice_paper">宣纸/和纸</option>
+          </select>
+        </div>
+        <label class="file-upload-btn" style="margin-bottom: 10px; background: #eff6ff; color: var(--text-main); border: 1px solid var(--border); box-shadow: none;">
+          <input type="file" id="customNormalInput" accept="image/*">
+          <i class="fa-solid fa-file-import"></i> <span data-i18n="pbr_upload_custom">上传自定义法线图</span>
+        </label>
+        <div id="customNormalCtrl" style="display:none; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 14px; background: rgba(255, 240, 243, 0.5); padding: 8px 12px; border-radius: 8px;">
+          <div class="label-text" style="color: var(--primary); white-space: nowrap; flex: 1;">
+            <i class="fa-solid fa-check-circle"></i> <span data-i18n="custom_normal_loaded">已加载自定义法线图</span>
+          </div>
+          <button id="clearCustomNormalBtn" class="btn-danger" style="padding: 4px 12px; font-size: 12px; width: auto; flex-shrink: 0;" data-i18n="pbr_clear_custom">清除</button>
+        </div>
+        <div class="ctrl" id="pbrTexSizeCtrl" style="display:none;">
+          <label for="pbrTextureSize" data-i18n="pbr_tex_size">纹理密度 (平铺数)</label>
+          <span id="pbrTexSizeValue">20</span>
+          <input id="pbrTextureSize" type="range" min="2" max="100" step="1" value="20">
+        </div>
+        <div class="ctrl" id="pbrNormalScaleCtrl" style="display:none;">
+          <label for="pbrNormalScale" data-i18n="pbr_normal_scale">法线强度</label>
+          <span id="pbrNormalScaleValue">1.0</span>
+          <input id="pbrNormalScale" type="range" min="0" max="3" step="0.1" value="1.0">
+        </div>
+        <div class="toggle-group" style="margin-bottom: 10px; padding: 8px 12px;">
+          <div class="toggle-item">
+            <span class="toggle-label"><span data-i18n="pbr_noise_overlay">叠加 PBR 噪波</span></span>
+            <label class="toggle-switch"><input type="checkbox" id="togglePbrNoise"><span class="slider"></span></label>
+          </div>
+        </div>
+        <div class="ctrl" id="pbrNoiseCtrl" style="display:none;">
+          <label for="pbrNoiseStyle" data-i18n="pbr_noise_style">噪波风格</label>
+          <select id="pbrNoiseStyle">
+            <option value="sand" data-i18n="pbr_noise_sand">细沙 (高频颗粒)</option>
+            <option value="fiber" data-i18n="pbr_noise_fiber">纤维 (拉丝质感)</option>
+            <option value="cloud" data-i18n="pbr_noise_cloud">云层 (柔和起伏)</option>
+            <option value="crack" data-i18n="pbr_noise_crack">粗糙裂纹</option>
+            <option value="ripple" data-i18n="pbr_noise_ripple">水波涟漪</option>
+            <option value="cellular" data-i18n="pbr_noise_cellular">细胞/鳞片</option>
+            <option value="wood" data-i18n="pbr_noise_wood">木纹</option>
+            <option value="marble" data-i18n="pbr_noise_marble">大理石</option>
+            <option value="rusty" data-i18n="pbr_noise_rusty">破旧斑驳</option>
+            <option value="weaveNode" data-i18n="pbr_noise_weave_node">编织节点</option>
+            <option value="quilted" data-i18n="pbr_noise_quilted">空调被/绗缝</option>
+          </select>
+        </div>
+        <div class="ctrl" id="pbrNoiseIntensityCtrl" style="display:none;">
+          <label for="pbrNoiseIntensity" data-i18n="pbr_noise_intensity">噪波强度 (混合比例)</label>
+          <span id="pbrNoiseIntensityValue">0.50</span>
+          <input id="pbrNoiseIntensity" type="range" min="0" max="1" step="0.01" value="0.5">
+        </div>
+        <div class="ctrl" id="pbrNoiseSizeCtrl" style="display:none;">
+          <label for="pbrNoiseSize" data-i18n="pbr_noise_size">噪波密度</label>
+          <span id="pbrNoiseSizeValue">4</span>
+          <input id="pbrNoiseSize" type="range" min="1" max="20" step="1" value="4">
+        </div>
+      </div>
+    </details>
+
+    <!-- ================= 3. 物理与风力 ================= -->
+    <details class="ui-group">
+      <summary><i class="fa-solid fa-wind" style="margin-right: 8px;"></i><span data-i18n="phys_title">物理与风力</span></summary>
+      <div class="ui-group-content">
+        <div class="ctrl-title"><i class="fa-solid fa-cubes"></i> <span data-i18n="basic_phys">物理基础</span></div>
+        <div class="ctrl">
+          <label for="physicsPreset" data-i18n="preset_title">物理预设</label>
+          <select id="physicsPreset">
+            <option value="custom" data-i18n="preset_custom">自定义</option>
+            <option value="washed_cotton" data-i18n="preset_washed_cotton">水洗棉</option>
+            <option value="polyester" data-i18n="preset_polyester">涤纶</option>
+            <option value="tr_blend" data-i18n="preset_tr_blend">TR面料 (混纺)</option>
+            <option value="worsted_wool" data-i18n="preset_worsted_wool">精纺毛呢</option>
+            <option value="cotton" data-i18n="preset_cotton">棉</option>
+            <option value="denim" data-i18n="preset_denim">牛仔</option>
+            <option value="leather" data-i18n="preset_leather">皮革</option>
+            <option value="rubber" data-i18n="preset_rubber">橡胶</option>
+            <option value="silk" data-i18n="preset_silk">丝绸</option>
+            <option value="silicone" data-i18n="preset_silicone">硅胶布</option>
+            <option value="metal" data-i18n="preset_metal">金属丝网</option>
+            <option value="paper" data-i18n="preset_paper">纸张</option>
+            <option value="neoprene" data-i18n="preset_neoprene">潜水料</option>
+            <option value="plastic" data-i18n="preset_plastic">塑料薄膜</option>
+            <option value="linen" data-i18n="preset_linen">亚麻</option>
+            <option value="chiffon" data-i18n="preset_chiffon">雪纺</option>
+            <option value="canvas" data-i18n="preset_canvas">帆布</option>
+            <option value="wool" data-i18n="preset_wool">羊毛</option>
+            <option value="velvet" data-i18n="preset_velvet">天鹅绒</option>
+            <option value="metalsheet" data-i18n="preset_metal_sheet">铁皮</option>
+            <option value="jelly" data-i18n="preset_jelly">果冻</option>
+            <option value="spidersilk" data-i18n="preset_spider_silk">蛛丝</option>
+            <option value="clingfilm" data-i18n="preset_cling_film">保鲜膜</option>
+          </select>
+        </div>
+        <div class="ctrl">
+          <label for="stiffness" data-i18n="stiff">刚度</label>
+          <span id="stiffnessValue">0.45</span>
+          <input id="stiffness" type="range" min="0.1" max="1" step="0.01" value="0.45">
+        </div>
+        <div class="ctrl">
+          <label for="maxStretch" data-i18n="max_stretch">最大拉伸</label>
+          <span id="maxStretchValue">1.5</span>
+          <input id="maxStretch" type="range" min="1" max="3" step="0.1" value="1.5">
+        </div>
+        <div class="ctrl">
+          <label for="damping" data-i18n="damp">空气阻力</label>
+          <span id="dampingValue">0.07</span>
+          <input id="damping" type="range" min="0.01" max="0.3" step="0.01" value="0.07">
+        </div>
+        <div class="ctrl">
+          <label for="gravity" data-i18n="gravity">重力</label>
+          <span id="gravityValue">0.10</span>
+          <input id="gravity" type="range" min="0" max="0.3" step="0.01" value="0.1">
+        </div>
+        <div class="ctrl">
+          <label for="mass" data-i18n="mass">质点质量</label>
+          <span id="massValue">25.0</span>
+          <input id="mass" type="range" min="0.1" max="200.0" step="0.1" value="25.0">
+        </div>
+
+        <div class="ctrl-title"><i class="fa-solid fa-shield-halved"></i> <span data-i18n="collision_settings">自碰撞参数</span></div>
+        <div class="toggle-group" style="margin-bottom: 10px; padding: 8px 12px;">
+          <div class="toggle-item">
+            <span class="toggle-label"><span data-i18n="fx_collision">自碰撞</span></span>
+            <label class="toggle-switch"><input type="checkbox" id="toggleCollision"><span class="slider"></span></label>
+          </div>
+        </div>
+        <div class="ctrl">
+          <label for="collisionPreset" data-i18n="collision_preset">碰撞预设</label>
+          <select id="collisionPreset">
+            <option value="custom" data-i18n="collision_custom">自定义</option>
+            <option value="perf" data-i18n="collision_perf">性能优先</option>
+            <option value="balance" data-i18n="collision_balance">平衡模式</option>
+            <option value="quality" data-i18n="collision_quality">质量优先</option>
+          </select>
+        </div>
+        <div class="ctrl">
+          <label for="collisionRadius" data-i18n="collision_radius">碰撞半径</label>
+          <span id="collisionRadiusValue">0.95</span>
+          <input id="collisionRadius" type="range" min="0.5" max="1.5" step="0.05" value="0.95">
+        </div>
+        <div class="ctrl">
+          <label for="collisionForce" data-i18n="collision_force">碰撞推力</label>
+          <span id="collisionForceValue">1.0</span>
+          <input id="collisionForce" type="range" min="0.5" max="2.0" step="0.1" value="1.0">
+        </div>
+        <div class="ctrl" style="margin-bottom: 0;">
+          <label for="collisionIters" data-i18n="collision_iters">碰撞迭代数</label>
+          <span id="collisionItersValue">2</span>
+          <input id="collisionIters" type="range" min="1" max="5" step="1" value="2">
+        </div>
+
+        <div class="ctrl-title"><i class="fa-solid fa-wind"></i> <span data-i18n="wind_settings">风力设置</span></div>
+        <div class="toggle-group" style="margin-bottom: 10px; padding: 8px 12px;">
+          <div class="toggle-item">
+            <span class="toggle-label"><span data-i18n="wind_enable">开启风力</span></span>
+            <label class="toggle-switch"><input type="checkbox" id="toggleWind"><span class="slider"></span></label>
+          </div>
+        </div>
+        <div class="ctrl">
+          <label for="windPreset" data-i18n="wind_preset">风力预设</label>
+          <select id="windPreset">
+            <option value="custom" data-i18n="wind_custom">自定义</option>
+            <option value="breeze" data-i18n="wind_breeze">微风</option>
+            <option value="gentle" data-i18n="wind_gentle">和风</option>
+            <option value="strong" data-i18n="wind_strong">强风</option>
+            <option value="gale" data-i18n="wind_gale">狂风</option>
+          </select>
+        </div>
+        <div class="ctrl">
+          <label for="wind" data-i18n="wind_strength">风力强度</label>
+          <span id="windValue">0.30</span>
+          <input id="wind" type="range" min="0" max="2.0" step="0.05" value="0.3">
+        </div>
+        <div class="ctrl">
+          <label for="windDir" data-i18n="wind_dir">风向角度 (0°向右, 90°向上)</label>
+          <span id="windDirValue">0°</span>
+          <input id="windDir" type="range" min="0" max="360" step="1" value="0">
+        </div>
+        <div class="ctrl">
+          <label for="windNoiseAmp" data-i18n="wind_noise_amp">风力噪波强度</label>
+          <span id="windNoiseAmpValue">0.40</span>
+          <input id="windNoiseAmp" type="range" min="0" max="1.0" step="0.01" value="0.40">
+        </div>
+        <div class="ctrl">
+          <label for="windRandom" data-i18n="wind_random">噪波随机性</label>
+          <span id="windRandomValue">0.50</span>
+          <input id="windRandom" type="range" min="0" max="1.0" step="0.01" value="0.50">
+        </div>
+        <div class="ctrl">
+          <label for="windSpeed" data-i18n="wind_speed">噪波节奏</label>
+          <span id="windSpeedValue">1.60</span>
+          <input id="windSpeed" type="range" min="0.2" max="4.0" step="0.05" value="1.60">
+        </div>
+
+        <div class="ctrl-title"><i class="fa-solid fa-gauge-high"></i> <span data-i18n="perf_params">性能参数</span></div>
+        <div class="ctrl">
+          <label for="simMult" data-i18n="sim_mult">解算运算倍数</label>
+          <span id="simMultValue">1.00</span>
+          <input id="simMult" type="range" min="0.2" max="2.0" step="0.05" value="1.0">
+        </div>
+        <div class="ctrl">
+          <label for="constraintIterations" data-i18n="constraint_iterations">约束迭代数</label>
+          <span id="constraintIterationsValue">6</span>
+          <input id="constraintIterations" type="range" min="3" max="20" step="1" value="6">
+        </div>
+        <div class="ctrl">
+          <label for="physicsHz" data-i18n="physics_hz">物理更新率 (Hz)</label>
+          <span id="physicsHzValue">100</span>
+          <input id="physicsHz" type="range" min="60" max="240" step="10" value="100">
+        </div>
+        <div class="ctrl" style="margin-bottom: 0;">
+          <label for="meshRes" data-i18n="mesh_res">网格分辨率</label>
+          <span id="meshResValue">24</span>
+          <input id="meshRes" type="range" min="14" max="128" step="2" value="24">
+        </div>
+      </div>
+    </details>
+
+    <!-- ================= 4. 光影与质感 ================= -->
+    <details class="ui-group">
+      <summary><i class="fa-solid fa-sun" style="margin-right: 8px;"></i><span data-i18n="lighting_title">光影与质感</span></summary>
+      <div class="ui-group-content">
+        <div class="toggle-group" style="margin-bottom: 10px; padding: 8px 12px;">
+          <div class="toggle-item">
+            <span class="toggle-label"><span data-i18n="fx_light">开启光影</span></span>
+            <label class="toggle-switch"><input type="checkbox" id="toggleLight"><span class="slider"></span></label>
+          </div>
+        </div>
+        <div class="ctrl">
+          <label for="lightIntensity" data-i18n="light_intensity">光线强度</label>
+          <span id="lightIntensityValue">0.45</span>
+          <input id="lightIntensity" type="range" min="0" max="1.5" step="0.01" value="0.45">
+        </div>
+        <div class="ctrl">
+          <label for="roughness" data-i18n="roughness">粗糙度</label>
+          <span id="roughnessValue">0.75</span>
+          <input id="roughness" type="range" min="0" max="1" step="0.01" value="0.75">
+        </div>
+        <div class="ctrl">
+          <label for="metalness" data-i18n="metalness">金属度</label>
+          <span id="metalnessValue">0.50</span>
+          <input id="metalness" type="range" min="0" max="1" step="0.01" value="0.5">
+        </div>
+        <div class="ctrl">
+          <label for="opacity" data-i18n="opacity">透明度</label>
+          <span id="opacityValue">1.00</span>
+          <input id="opacity" type="range" min="0.05" max="1" step="0.01" value="1.0">
+        </div>
+        <div class="ctrl">
+          <label for="lightColor" data-i18n="light_color">光线颜色</label>
+          <input id="lightColor" type="color" value="#ffffff">
+        </div>
+        <div class="ctrl">
+          <label for="lightX" data-i18n="light_dir_x">光线左右</label>
+          <span id="lightXValue">2.0</span>
+          <input id="lightX" type="range" min="-5" max="5" step="0.1" value="2">
+        </div>
+        <div class="ctrl">
+          <label for="lightY" data-i18n="light_dir_y">光线上下</label>
+          <span id="lightYValue">4.5</span>
+          <input id="lightY" type="range" min="-5" max="5" step="0.1" value="4.5">
+        </div>
+        <div class="ctrl">
+          <label for="lightZ" data-i18n="light_dir_z">光线前后</label>
+          <span id="lightZValue">5.0</span>
+          <input id="lightZ" type="range" min="-5" max="5" step="0.1" value="5">
+        </div>
+        <button id="resetLightPosBtn" class="btn-normal" style="margin-bottom: 15px;" data-i18n="reset_light">重置光线方向</button>
+        
+        <div class="ctrl">
+          <label for="lightStyle" data-i18n="light_style">光影风格</label>
+          <select id="lightStyle">
+            <option value="realistic" data-i18n="style_realistic">写实渲染</option>
+            <option value="toonShadow" data-i18n="style_toon">三渲二</option>
+          </select>
+        </div>
+        <div class="ctrl">
+          <label for="toonSteps" data-i18n="toon_steps">三渲二色阶</label>
+          <span id="toonStepsValue">4</span>
+          <input id="toonSteps" type="range" min="2" max="10" step="1" value="4">
+        </div>
+        <div class="toggle-group" style="margin-bottom: 12px;">
+          <div class="toggle-item">
+            <span class="toggle-label"><span data-i18n="flat_shading">面片质感</span></span>
+            <label class="toggle-switch"><input type="checkbox" id="toggleFlat"><span class="slider"></span></label>
+          </div>
+        </div>
+        <div class="toggle-group" style="margin-bottom: 12px;">
+          <div class="toggle-item">
+            <span class="toggle-label"><span data-i18n="fx_holo">动态镭射反光</span></span>
+            <label class="toggle-switch"><input type="checkbox" id="toggleHolo"><span class="slider"></span></label>
+          </div>
+        </div>
+        <div class="ctrl" id="holoIntensityCtrl" style="display:none;">
+          <label for="holoIntensity" data-i18n="fx_holo_intensity">镭射强度</label>
+          <span id="holoIntensityValue">0.80</span>
+          <input id="holoIntensity" type="range" min="0" max="2" step="0.05" value="0.8">
+        </div>
+      </div>
+    </details>
+
+    <!-- ================= 5. 编辑与拖拽 ================= -->
+    <details class="ui-group">
+      <summary><i class="fa-solid fa-hand-pointer" style="margin-right: 8px;"></i><span data-i18n="edit_drag_title">编辑与拖拽</span></summary>
+      <div class="ui-group-content">
+        <div class="btn-row">
+          <button id="clearStrokeBtn" class="btn-normal" data-i18n="clear_pins">清空红线</button>
+          <button id="restoreBtn" class="btn-normal" data-i18n="btn_restore">一键复原</button>
+        </div>
+        <div class="btn-row">
+          <button id="flipHBtn" class="btn-normal" data-i18n="flip_h">水平翻转</button>
+          <button id="flipVBtn" class="btn-normal" data-i18n="flip_v">垂直翻转</button>
+        </div>
+
+        <div class="ctrl" style="display: flex; flex-direction: column; align-items: flex-start; margin-bottom: 14px;">
+          <div class="label-text" style="margin-bottom: 8px;"><span data-i18n="drag_mode">交互模式</span></div>
+          <div class="radio-group" style="grid-template-columns: repeat(2, 1fr);">
+            <label class="radio-label" for="modeSingle"><input type="radio" name="dragModeRadio" id="modeSingle" value="single" checked><span data-i18n="drag_single">单点</span></label>
+            <label class="radio-label" for="modeArea"><input type="radio" name="dragModeRadio" id="modeArea" value="area"><span data-i18n="drag_area">区域</span></label>
+            <label class="radio-label" for="modeMulti"><input type="radio" name="dragModeRadio" id="modeMulti" value="multi"><span data-i18n="drag_multi">多点</span></label>
+            <label class="radio-label" for="modeKnife"><input type="radio" name="dragModeRadio" id="modeKnife" value="knife"><span data-i18n="drag_knife">刀割</span></label>
+            <label class="radio-label" for="modeTear" style="grid-column: 1 / -1;"><input type="radio" name="dragModeRadio" id="modeTear" value="tear"><span data-i18n="drag_tear">撕扯</span></label>
+          </div>
+        </div>
+
+        <div class="ctrl">
+          <label for="dragDepthSelect" data-i18n="drag_depth">拖拽方向 (Z轴)</label>
+          <select id="dragDepthSelect">
+            <option value="auto" data-i18n="drag_depth_auto">自动判断</option>
+            <option value="outward" data-i18n="drag_depth_out">向外拉出</option>
+            <option value="inward" data-i18n="drag_depth_in">向内推入</option>
+          </select>
+        </div>
+        
+        <div class="ctrl" id="dragRadiusCtrl" style="display:none;">
+          <label for="dragRadius" data-i18n="grab_radius">抓取半径</label>
+          <span id="dragRadiusValue">0.20</span>
+          <input id="dragRadius" type="range" min="0.05" max="0.5" step="0.01" value="0.20">
+        </div>
+        <div class="ctrl" id="knifeRadiusCtrl" style="display:none;">
+          <label for="knifeRadius" data-i18n="knife_radius">割裂范围</label>
+          <span id="knifeRadiusValue">0.05</span>
+          <input id="knifeRadius" type="range" min="0.01" max="0.2" step="0.01" value="0.05">
+        </div>
+        <div id="tearSettingsGroup" style="display:none; background: rgba(255,255,255,0.3); padding: 10px; border-radius: 12px; margin-bottom: 14px;">
+          <div class="ctrl" style="margin-bottom: 10px;">
+            <label for="tearPresetSelect" data-i18n="tear_preset">撕扯预设</label>
+            <select id="tearPresetSelect">
+              <option value="custom" data-i18n="tear_preset_custom">自定义</option>
+              <option value="soft" data-i18n="tear_preset_soft">纸巾般易碎</option>
+              <option value="normal" data-i18n="tear_preset_normal">标准布料</option>
+              <option value="tough" data-i18n="tear_preset_tough">牢固耐扯</option>
+              <option value="metal" data-i18n="tear_preset_metal">坚不可摧</option>
+            </select>
+          </div>
+          <div class="ctrl" style="margin-bottom: 0;">
+            <label for="tearThreshold" data-i18n="tear_threshold">撕扯阈值</label>
+            <span id="tearThresholdValue">1.20</span>
+            <input id="tearThreshold" type="range" min="1.0" max="3.5" step="0.05" value="1.2">
+          </div>
+        </div>
+        <div class="ctrl" id="maxDragDistanceCtrl" style="margin-bottom: 0;">
+          <label for="maxDragDistance" data-i18n="max_drag_dist">最大拉扯距离</label>
+          <span id="maxDragDistanceValue">0.60</span>
+          <input id="maxDragDistance" type="range" min="0.1" max="5.0" step="0.1" value="0.6">
+        </div>
+      </div>
+    </details>
+
+    <!-- ================= 6. 渲染特效 & 泼水 ================= -->
+    <details class="ui-group">
+      <summary><i class="fa-solid fa-wand-magic-sparkles" style="margin-right: 8px;"></i><span data-i18n="fx_water_title">渲染特效 & 泼水</span></summary>
+      <div class="ui-group-content">
+        <div class="toggle-group">
+          <div class="toggle-item"><span class="toggle-label"><span data-i18n="fx_tex">贴图</span></span><label class="toggle-switch"><input type="checkbox" id="toggleTex"><span class="slider"></span></label></div>
+          <div class="toggle-item"><span class="toggle-label"><span data-i18n="fx_shadow">影子</span></span><label class="toggle-switch"><input type="checkbox" id="toggleShadow"><span class="slider"></span></label></div>
+          <div class="toggle-item"><span class="toggle-label"><span data-i18n="fx_thickness">厚度</span></span><label class="toggle-switch"><input type="checkbox" id="toggleThickness"><span class="slider"></span></label></div>
+          <div class="toggle-item"><span class="toggle-label"><span data-i18n="fx_grid">网格</span></span><label class="toggle-switch"><input type="checkbox" id="toggleGrid"><span class="slider"></span></label></div>
+          <div class="toggle-item"><span class="toggle-label"><span data-i18n="fx_blur">动态模糊</span></span><label class="toggle-switch"><input type="checkbox" id="toggleBlur"><span class="slider"></span></label></div>
+        </div>
+
+        <div class="ctrl" id="blurCtrl" style="display:none;">
+          <label for="blurStrength" data-i18n="blur_strength">模糊强度</label>
+          <span id="blurStrengthValue">0.40</span>
+          <input id="blurStrength" type="range" min="0" max="1" step="0.01" value="0.4">
+        </div>
+
+        <div class="ctrl" id="thicknessCtrl" style="display:none;">
+          <label for="thicknessSize" data-i18n="th_size">厚度大小</label>
+          <span id="thicknessSizeValue">0.015</span>
+          <input id="thicknessSize" type="range" min="0.001" max="0.05" step="0.001" value="0.015">
+        </div>
+        <div class="ctrl" id="thicknessColorCtrl" style="display:none;">
+          <label for="thicknessColor" data-i18n="th_color">截面颜色</label>
+          <input id="thicknessColor" type="color" value="#aaaaaa">
+        </div>
+        <div class="toggle-group" id="thicknessTexCtrl" style="display:none; padding: 8px 12px; margin-bottom: 0;">
+          <div class="toggle-item">
+            <span class="toggle-label"><span data-i18n="th_use_tex">厚度截面使用贴图</span></span>
+            <label class="toggle-switch"><input type="checkbox" id="toggleThicknessTex"><span class="slider"></span></label>
+          </div>
+        </div>
+
+        <div class="ctrl-title"><i class="fa-solid fa-pen-nib"></i> <span data-i18n="outline_settings">描边设置</span></div>
+        <div class="toggle-group" style="margin-bottom: 10px; padding: 8px 12px;">
+          <div class="toggle-item">
+            <span class="toggle-label"><span data-i18n="fx_outline">描边</span></span>
+            <label class="toggle-switch"><input type="checkbox" id="toggleOutline"><span class="slider"></span></label>
+          </div>
+        </div>
+        <div class="ctrl">
+          <label for="outlineThick" data-i18n="out_thick">描边粗细</label>
+          <span id="outlineThickValue">0.008</span>
+          <input id="outlineThick" type="range" min="0.001" max="0.025" step="0.001" value="0.008">
+        </div>
+        <div class="ctrl" style="margin-bottom: 0;">
+          <label for="outlineColor" data-i18n="out_color">描边颜色</label>
+          <input id="outlineColor" type="color" value="#000000">
+        </div>
+
+        <div class="ctrl-title"><i class="fa-solid fa-droplet"></i> <span data-i18n="water_interaction">泼水交互</span></div>
+        <button id="btnPourWater" class="btn-water" style="margin-bottom: 10px;"><i class="fa-solid fa-droplet"></i> <span data-i18n="btn_pour_water">泼水</span></button>
+        <div class="ctrl">
+          <label for="waterDropSize" data-i18n="water_drop_size">水珠大小</label>
+          <span id="waterDropSizeValue">1.0</span>
+          <input id="waterDropSize" type="range" min="0.5" max="2.5" step="0.1" value="1.0">
+        </div>
+        <div class="ctrl">
+          <label for="waterDropDensity" data-i18n="water_drop_density">水珠密度</label>
+          <span id="waterDropDensityValue">1.0</span>
+          <input id="waterDropDensity" type="range" min="0.2" max="2.5" step="0.1" value="1.0">
+        </div>
+        <div class="ctrl">
+          <label for="waterNormalIntensity" data-i18n="water_normal_intensity">水珠反光强度</label>
+          <span id="waterNormalIntensityValue">1.0</span>
+          <input id="waterNormalIntensity" type="range" min="0" max="2" step="0.1" value="1.0">
+        </div>
+        <div class="ctrl">
+          <label for="evapSpeed" data-i18n="evap_speed">挥发速度</label>
+          <span id="evapSpeedValue">0.0020</span>
+          <input id="evapSpeed" type="range" min="0.0005" max="0.02" step="0.0005" value="0.002">
+        </div>
+        <div class="ctrl" style="margin-bottom: 0;">
+          <label><span data-i18n="wetness_level">当前湿度</span></label>
+          <span id="wetnessValue">0.0%</span>
+        </div>
+      </div>
+    </details>
+
+    <!-- ================= 7. 背景与相机 ================= -->
+    <details class="ui-group">
+      <summary><i class="fa-solid fa-image" style="margin-right: 8px;"></i><span data-i18n="bg_cam_title">背景与相机</span></summary>
+      <div class="ui-group-content">
+        <div class="ctrl">
+          <label for="bgColor" data-i18n="bg_color">背景颜色</label>
+          <input id="bgColor" type="color" value="#ffffff">
+        </div>
+        <label class="file-upload-btn" style="margin-bottom: 10px; background: #eff6ff; color: var(--text-main); box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid var(--border);">
+          <input type="file" id="bgImageInput" accept="image/*">
+          <i class="fa-solid fa-image"></i> <span data-i18n="bg_upload">上传背景图片</span>
+        </label>
+        <div class="ctrl">
+          <label for="bgScale" data-i18n="bg_scale">背景缩放</label>
+          <span id="bgScaleValue">100%</span>
+          <input id="bgScale" type="range" min="10" max="300" step="1" value="100">
+        </div>
+        <div class="ctrl">
+          <label for="bgX" data-i18n="bg_x">水平偏移</label>
+          <span id="bgXValue">0px</span>
+          <input id="bgX" type="range" min="-500" max="500" step="1" value="0">
+        </div>
+        <div class="ctrl">
+          <label for="bgY" data-i18n="bg_y">垂直偏移</label>
+          <span id="bgYValue">0px</span>
+          <input id="bgY" type="range" min="-500" max="500" step="1" value="0">
+        </div>
+        <div class="toggle-group" style="margin-bottom: 12px;">
+          <div class="toggle-item">
+            <span class="toggle-label"><span data-i18n="bg_env_reflect">环境光同步背景</span></span>
+            <label class="toggle-switch"><input type="checkbox" id="toggleBgEnv"><span class="slider"></span></label>
+          </div>
+        </div>
+        <button id="resetBgBtn" class="btn-normal" style="margin-bottom: 15px;" data-i18n="bg_reset">重置背景</button>
+
+        <div class="ctrl">
+          <label for="zoom" data-i18n="cam_zoom">缩放</label>
+          <span id="zoomValue">1.00</span>
+          <input id="zoom" type="range" min="0.1" max="3" step="0.01" value="1">
+        </div>
+        <div class="ctrl">
+          <label for="camX" data-i18n="cam_left">左右</label>
+          <span id="camXValue">0.00</span>
+          <input id="camX" type="range" min="-1.5" max="1.5" step="0.01" value="0">
+        </div>
+        <div class="ctrl">
+          <label for="camY" data-i18n="cam_up">上下</label>
+          <span id="camYValue">0.00</span>
+          <input id="camY" type="range" min="-1.5" max="1.5" step="0.01" value="0">
+        </div>
+        <button id="resetCamBtn" class="btn-normal" data-i18n="reset_cam">重置相机</button>
+      </div>
+    </details>
+
+    <button id="resetBtn" class="btn-danger" style="margin-top: 10px; margin-bottom: 20px;" data-i18n="reset_btn">重置全部</button>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+<script src="i18n.js"></script>
+<script type="module" src="script.js"></script>
+</body>
+</html>
