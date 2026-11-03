@@ -495,7 +495,20 @@ button.btn-active {
 
 /* ================== 表单控件 ================== */
 .btn-row { display: flex; gap: 10px; margin-bottom: 12px; }
-.btn-row button { flex: 1; }
+
+.btn-row button {
+  flex: 1;
+  flex-direction: column; /* 👈 改为垂直排列 */
+  padding: 10px 4px;
+  gap: 6px; /* 图标和文字的间距 */
+  font-size: 12px;
+  white-space: nowrap; /* 依然禁止文字换行 */
+}
+
+html[lang="en"] .btn-row button {
+  font-size: 11px; 
+  letter-spacing: -0.2px;
+}
 
 .ctrl {
   display: grid;
