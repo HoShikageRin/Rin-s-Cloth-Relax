@@ -134,7 +134,7 @@ const translations = {
         btn_decor: "放装饰", decor_title: "装饰类型", editing_decor: "✨ 正在编辑选中装饰", btn_delete_decor: "删除该装饰", decor_type: "更改类型", decor_size: "大小", decor_color: "颜色",
         decor_star: "⭐ 小星星", decor_heart: "💖 小爱心", decor_sphere: "🔴 小圆珠", decor_cloud: "☁️ 小云朵", decor_bow: "🎀 蝴蝶结", decor_flower: "🌼 小雏菊", decor_paw: "🐾 猫爪", decor_drop: "💧 小水滴", decor_cherry: "🍒 小樱桃", decor_moon: "🌙 小月亮", decor_crown: "👑 小皇冠", decor_button: "🔘 小纽扣", decor_custom_upload: "📦 上传的自定义模型",
         import_decor_model: "导入自定义装饰 (.glb)", decor_mat: "材质", mat_plastic: "哑光塑料", mat_jelly: "果冻透明", mat_metal: "金属高光", mat_plush: "毛绒质感", mat_holo: "镭射反光",
-        decor_weight: "重量", weight_light: "轻 (漂浮)", weight_medium: "中 (贴合)", weight_heavy: "重 (下坠)", decor_clear: "清空所有",
+        decor_weight: "重量", weight_light: "轻 (漂浮)", weight_medium: "中 (贴合)", weight_heavy: "重 (下坠)", decor_clear: "清空所有",follow_me: "🐱 关注我 💖",
     },
     
     'zh-TW': {}, // 下方会自动补全
@@ -271,7 +271,7 @@ const translations = {
         btn_decor: "Place Decor", decor_title: "Decor Type", editing_decor: "✨ Editing Selected Decor", btn_delete_decor: "Delete Decor", decor_type: "Change Type", decor_size: "Size", decor_color: "Color",
         decor_star: "⭐ Star", decor_heart: "💖 Heart", decor_sphere: "🔴 Bead", decor_cloud: "☁️ Cloud", decor_bow: "🎀 Bow", decor_flower: "🌼 Daisy", decor_paw: "🐾 Paw", decor_drop: "💧 Drop", decor_cherry: "🍒 Cherry", decor_moon: "🌙 Moon", decor_crown: "👑 Crown", decor_button: "🔘 Button", decor_custom_upload: "📦 Custom Model",
         import_decor_model: "Import Custom Decor (.glb)", decor_mat: "Material", mat_plastic: "Matte Plastic", mat_jelly: "Jelly", mat_metal: "Metal", mat_plush: "Plush", mat_holo: "Holographic",
-        decor_weight: "Weight", weight_light: "Light", weight_medium: "Medium", weight_heavy: "Heavy", decor_clear: "Clear All",
+        decor_weight: "Weight", weight_light: "Light", weight_medium: "Medium", weight_heavy: "Heavy", decor_clear: "Clear All",follow_me: "🐱 Follow Me 💖",
     },
 
     ja: {
@@ -406,7 +406,7 @@ const translations = {
         btn_decor: "装飾を置く", decor_title: "装飾タイプ", editing_decor: "✨ 選択中の装飾を編集", btn_delete_decor: "装飾を削除", decor_type: "タイプ変更", decor_size: "サイズ", decor_color: "色",
         decor_star: "⭐ 星", decor_heart: "💖 ハート", decor_sphere: "🔴 ビーズ", decor_cloud: "☁️ 雲", decor_bow: "🎀 リボン", decor_flower: "🌼 デイジー", decor_paw: "🐾 肉球", decor_drop: "💧 しずく", decor_cherry: "🍒 さくらんぼ", decor_moon: "🌙 月", decor_crown: "👑 王冠", decor_button: "🔘 ボタン", decor_custom_upload: "📦 カスタムモデル",
         import_decor_model: "カスタム装飾をインポート (.glb)", decor_mat: "マテリアル", mat_plastic: "マットプラスチック", mat_jelly: "ゼリー", mat_metal: "メタル", mat_plush: "プラッシュ", mat_holo: "ホログラム",
-        decor_weight: "重さ", weight_light: "軽い", weight_medium: "中", weight_heavy: "重い", decor_clear: "すべてクリア",
+        decor_weight: "重さ", weight_light: "軽い", weight_medium: "中", weight_heavy: "重い", decor_clear: "すべてクリア",follow_me: "🐱 フォローしてね 💖",
     },
 
     ko: {
@@ -541,7 +541,7 @@ const translations = {
         btn_decor: "장식 놓기", decor_title: "장식 유형", editing_decor: "✨ 선택한 장식 편집 중", btn_delete_decor: "장식 삭제", decor_type: "유형 변경", decor_size: "크기", decor_color: "색상",
         decor_star: "⭐ 별", decor_heart: "💖 하트", decor_sphere: "🔴 구슬", decor_cloud: "☁️ 구름", decor_bow: "🎀 리본", decor_flower: "🌼 데이지", decor_paw: "🐾 발바닥", decor_drop: "💧 물방울", decor_cherry: "🍒 체리", decor_moon: "🌙 달", decor_crown: "👑 왕관", decor_button: "🔘 단추", decor_custom_upload: "📦 사용자 정의 모델",
         import_decor_model: "사용자 정의 장식 가져오기 (.glb)", decor_mat: "재질", mat_plastic: "무광 플라스틱", mat_jelly: "젤리", mat_metal: "메탈", mat_plush: "플러시", mat_holo: "홀로그램",
-        decor_weight: "무게", weight_light: "가벼움", weight_medium: "보통", weight_heavy: "무거움", decor_clear: "모두 지우기",
+        decor_weight: "무게", weight_light: "가벼움", weight_medium: "보통", weight_heavy: "무거움", decor_clear: "모두 지우기",follow_me: "🐱 팔로우 미 💖",
     }
 };
 
@@ -557,6 +557,7 @@ Object.assign(translations['zh-TW'], {
     cloth_rotate_z: "Z軸旋轉 (平面)",
     btn_reset_rot: "重置旋轉",
     btn_clear_pins: "清空紅綫",
+    follow_me: "🐱 關注我 💖",
     // ... 若你需要更严谨的繁体翻译，可以在这里继续覆盖 ...
 });
 
