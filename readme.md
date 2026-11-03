@@ -1,5 +1,5 @@
 <div align="center">
-  <b>简体中文</b> | <a href="./README_EN.md">English</a>
+  <b>简体中文</b> | <a href="./readme_en.md">English</a>
 </div>
 # 星糖凛布料解压站
 
