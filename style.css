@@ -14,18 +14,18 @@
 }
 
 :root {
-  --primary: #FFB7C5; 
-  --primary-dark: #D1496B;
-  --bg: #F4F6F9;
-  --text-main: #4A4A6A; 
-  --text-muted: #9394B6;
+  /* 把高饱和樱花粉 → 柔豆沙粉，降低明度对比 */
+  --primary: #EAB1C2;
+  --primary-dark: #B56B80;
+  --bg: #FAF7F9;
+  --text-main: #5D5E7A;
+  --text-muted: #9A9BB2;
   --radius: 16px;
-  
-  --glass-bg: rgba(255, 255, 255, 0.6);
+
+  --glass-bg: rgba(255, 252, 253, 0.65);
   --glass-border: rgba(255, 255, 255, 0.9);
-  --glass-blur: blur(32px) saturate(200%);
-  
-  /* Q弹回弹曲线 */
+  --glass-blur: blur(28px) saturate(180%);
+
   --spring-curve: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
@@ -103,6 +103,8 @@ html, body {
   flex-direction: column;
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: 0 12px 40px rgba(200, 180, 210, 0.12),
+              inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 #ui::-webkit-scrollbar { width: 6px; }
@@ -141,6 +143,8 @@ html, body {
   text-shadow: 2px 2px 0px rgba(255, 255, 255, 0.8), 4px 4px 8px rgba(255, 183, 197, 0.3);
   word-break: break-word;
   flex-shrink: 0;
+  text-shadow: 2px 2px 0 rgba(255, 255, 255, 0.85),
+               3px 3px 6px rgba(234, 177, 194, 0.22);
 }
 
 /* ================== 折叠面板 ================== */
@@ -181,7 +185,12 @@ details.ui-group > summary {
 details.ui-group > summary::-webkit-details-marker { display: none; }
 
 details.ui-group > summary:hover {
-  background: linear-gradient(90deg, rgba(255, 240, 245, 0.8) 0%, rgba(240, 245, 255, 0.8) 100%);
+  background: linear-gradient(90deg, rgba(253, 243, 246, 0.85) 0%, rgba(243, 245, 252, 0.85) 100%);
+}
+details.ui-group[open] > summary {
+  background: linear-gradient(90deg, rgba(252, 242, 246, 0.92) 0%, rgba(242, 244, 251, 0.92) 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.8);
+  color: var(--primary-dark); /* 用深玫瑰保证可读性 */
 }
 
 details.ui-group > summary > i {
@@ -359,9 +368,9 @@ details.ui-group[open] > summary::after {
 
 /* ================== 各类按钮主题色 ================== */
 .btn-pinstroke {
-  --glow-color: rgba(255, 183, 197, 0.6);
-  --btn-bg: linear-gradient(135deg, rgba(255, 229, 236, 0.9), rgba(255, 183, 197, 0.8));
-  --btn-text: #D1496B;
+  --glow-color: rgba(234, 177, 194, 0.5);
+  --btn-bg: linear-gradient(135deg, rgba(252, 234, 240, 0.9), rgba(234, 177, 194, 0.8));
+  --btn-text: #B56B80;
 }
 .btn-eraser {
   --glow-color: rgba(255, 209, 128, 0.5);
@@ -369,17 +378,15 @@ details.ui-group[open] > summary::after {
   --btn-text: #D48806;
 }
 .btn-primary {
-  --glow-color: rgba(255, 159, 179, 0.7);
-  --btn-bg: linear-gradient(135deg, rgba(255, 183, 197, 0.95), rgba(255, 159, 179, 0.85));
+  --glow-color: rgba(234, 177, 194, 0.55);
+  --btn-bg: linear-gradient(135deg, rgba(234, 177, 194, 0.92), rgba(217, 148, 170, 0.82));
   --btn-text: white;
-  margin-bottom: 10px;
-  text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.15);
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.12);
 }
 .btn-water {
-  --glow-color: rgba(123, 226, 226, 0.6);
-  --btn-bg: linear-gradient(135deg, rgba(174, 238, 238, 0.9), rgba(123, 226, 226, 0.8));
-  --btn-text: #006666;
-  margin-bottom: 12px;
+  --glow-color: rgba(140, 200, 205, 0.45);
+  --btn-bg: linear-gradient(135deg, rgba(200, 235, 235, 0.9), rgba(150, 215, 215, 0.75));
+  --btn-text: #2A6B6B;
 }
 .btn-danger {
   --glow-color: rgba(239, 154, 154, 0.5);
@@ -582,11 +589,11 @@ input[type="range"]::-webkit-slider-thumb {
   background: radial-gradient(circle at 25% 25%, #ffffff 0%, rgba(255,255,255,0.7) 15%, var(--primary) 100%);
   cursor: pointer;
   margin-top: -7px; 
-  box-shadow: 
+box-shadow: 
     inset 0 2px 3px rgba(255, 255, 255, 1),
-    inset 0 -2px 4px rgba(0, 0, 0, 0.1),
-    0 4px 10px rgba(255, 183, 197, 0.6),
-    0 1px 3px rgba(0, 0, 0, 0.1);
+    inset 0 -2px 4px rgba(0, 0, 0, 0.08),
+    0 3px 8px rgba(234, 177, 194, 0.45),
+    0 1px 3px rgba(0, 0, 0, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.6);
   transition: transform 0.3s var(--spring-curve);
 }
@@ -845,7 +852,13 @@ input[type="range"]::-webkit-slider-thumb:active {
 }
 
 /* ================== 响应式布局 ================== */
-.mobile-only-btn { display: none; }
+.mobile-only-btn {
+  display: none; /* 👈 加上这一句，让它在电脑端隐藏！ */
+  background: linear-gradient(135deg, rgba(234, 177, 194, 0.9), rgba(217, 148, 170, 0.8));
+  box-shadow: 
+    inset 0 2px 3px rgba(255, 255, 255, 0.9),
+    0 5px 14px rgba(234, 177, 194, 0.45);
+}
 
 @media (max-width: 1024px) {
   .wrap { display: block; padding: 0; height: 100vh; height: 100dvh; width: 100vw; }

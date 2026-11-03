@@ -302,6 +302,16 @@ const translations = {
         weight_medium: "中 (贴合)",
         weight_heavy: "重 (下坠)",
         decor_clear: "清空所有",
+        cloth_move_enable: "整体移动布料",
+        cloth_move_hint: "启用后，在生成布料后直接拖拽屏幕即可整体平移布料（包括已固定部分）。",
+        cloth_rotate_title: "布料旋转",
+        cloth_rotate_x: "X轴旋转 (翻转)",
+        cloth_rotate_y: "Y轴旋转 (扭转)",
+        cloth_rotate_z: "Z轴旋转 (平面)",
+        btn_reset_rot: "重置旋转",
+        custom_decor_title: "自定义装饰管理",
+        custom_normal_title: "自定义法线管理",
+        btn_delete: "删除",
     },
 };
 
@@ -605,6 +615,16 @@ Object.assign(translations['zh-TW'], {
     weight_medium: "中 (貼合)",
     weight_heavy: "重 (下墜)",
     decor_clear: "清空所有",
+    cloth_move_enable: "整體移動布料",
+    cloth_move_hint: "啟用後，在生成布料後直接拖拽屏幕即可整體平移布料（包括已固定部分）。",
+    cloth_rotate_title: "布料旋轉",
+    cloth_rotate_x: "X軸旋轉 (翻轉)",
+    cloth_rotate_y: "Y軸旋轉 (扭轉)",
+    cloth_rotate_z: "Z軸旋轉 (平面)",
+    btn_reset_rot: "重置旋轉",
+    custom_decor_title: "自訂裝飾管理",
+    custom_normal_title: "自訂法線管理",
+    btn_delete: "刪除",
 });
 
 translations['en'] = {
@@ -908,6 +928,16 @@ translations['en'] = {
     weight_medium: "Medium (Stick)",
     weight_heavy: "Heavy (Sink)",
     decor_clear: "Clear All",
+    cloth_move_enable: "Move Cloth",
+    cloth_move_hint: "When enabled, drag the screen to translate the entire cloth (including pinned parts).",
+    cloth_rotate_title: "Rotate Cloth",
+    cloth_rotate_x: "Rotate X (Flip)",
+    cloth_rotate_y: "Rotate Y (Twist)",
+    cloth_rotate_z: "Rotate Z (Plane)",
+    btn_reset_rot: "Reset Rotation",
+    custom_decor_title: "Custom Decor Management",
+    custom_normal_title: "Custom Normal Management",
+    btn_delete: "Delete",
 };
 
 window.currentLang = 'zh';

@@ -82,6 +82,17 @@ let velocityMat = null;
 let flipH = false;
 let flipV = false;
 
+// ===== 整体移动布料状态 =====
+let clothMoveEnabled = false;
+let isMovingCloth = false;
+let lastClothMovePoint = null; 
+const clothMovePlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+
+// ================= 旋转布料逻辑 =================
+let prevRotX = 0;
+let prevRotY = 0;
+let prevRotZ = 0;
+
 let pinStrokeList = [];
 let currentPinStroke = [];
 let currentPinStrokeWidth = 0.04;
@@ -215,7 +226,13 @@ for (const [type, url] of Object.entries(customModelUrls)) {
 let selectedDecorIndex = -1;
 let draggingDecorIndex = -1;
 const MAX_DECORATIONS = 200;
-const decorColors = ["#FFB7C5", "#74B9FF", "#FFEAA7", "#A29BFE", "#55EFC4", "#FAB1A0", "#E1BEE7"];
+const decorColors = [
+  "#FFD1DC", "#C6E2FF", "#FFF6CC", "#E2D5F8", "#D0F4DE", "#FFE0D0",
+  "#F8C8DC", "#B9DDFF", "#E9E2F5", "#D9F5E9", "#FFEBD8", "#F2D7E7",
+  "#FFE6F2", "#CCE7FF", "#FFF9CC", "#E8DEFF", "#D3F6E8", "#FFE8D6",
+  "#F5D7E9", "#C8E8FF", "#F0E8FF", "#D7F4E2", "#FFE2CF", "#F7D8E2"
+];
+
 
 // --- 软萌材质【修复版，补全变量并修正错误】 ---
 function createSoftMaterial(colorHex, type = 'plush') {
@@ -329,9 +346,11 @@ function createDropShape(size) {
 // --- 核心模型生成器【重构版本，对齐手绘】 ---
 function create3DDecorMesh(type, colorHex, matType, scale = 1.0) {
     const baseSize = 0.06;
-    
+        if (type === 'custom_upload' && customDecorSelect && customDecorSelect.value) {
+        type = customDecorSelect.value;
+    }
     // ======= 1. 樱桃（保留原版） =======
-    if (type === 'cherry') {
+    else if (type === 'cherry') {
         const mat = createSoftMaterial(colorHex, matType);
         const mesh = new THREE.Group();
         const stemMat = createSoftMaterial("#88D49E", matType);
@@ -2942,14 +2961,23 @@ function scheduleRegenerateWaterTexture() {
 }
 
 function pourWater() {
+    console.log("=== 开始执行泼水 ===");
+    
     if (!cloth || !clothMesh) {
+        console.error("【泼水失败】布料未生成");
         alert(window.I18N[window.currentLang].alert_no_cloth || "请先生成布料！");
         return;
     }
+    
     if (!lightEnabled) {
+        console.error("【泼水失败】未开启光影");
         alert(window.I18N[window.currentLang].alert_need_light || "请先开启光影！");
         return;
     }
+
+    console.log("【泼水成功】开始生成水珠纹理...");
+
+    // 原本的代码继续往下...
     if (waterDropNormalTexture) {
         waterDropNormalTexture.dispose();
     }
@@ -3154,38 +3182,112 @@ pbrNoiseStyleSelect.onchange = () => {
     if (pbrNoiseEnabled) updatePbrTextures();
 };
 
+let userCustomNormals = []; // 存储 { id, name, texture }
+
+const customNormalSelect = document.getElementById("customNormalSelect");
+const btnDeleteCustomNormal = document.getElementById("btnDeleteCustomNormal");
+
 customNormalInput.onchange = (e) => {
     const file = e.target.files[0];
     if (!file || !file.type.startsWith('image/')) return;
     const img = new Image();
     img.onload = () => {
-        if (pbrCustomNormalTexture) pbrCustomNormalTexture.dispose();
-        pbrCustomNormalTexture = new THREE.Texture(img);
-        pbrCustomNormalTexture.wrapS = THREE.RepeatWrapping;
-        pbrCustomNormalTexture.wrapT = THREE.RepeatWrapping;
-        pbrCustomNormalTexture.anisotropy = renderer.capabilities.getMaxAnisotropy();
-        if ('colorSpace' in pbrCustomNormalTexture) pbrCustomNormalTexture.colorSpace = THREE.LinearSRGBColorSpace;
-        pbrCustomNormalTexture.needsUpdate = true;
-        customNormalCtrl.style.display = "flex";
-        pbrTextureSelect.value = "none";
-        currentPbrType = "none";
-        const showSizeCtrl = (currentPbrType !== "none" || pbrNoiseEnabled || pbrCustomNormalTexture);
-        pbrTexSizeCtrl.style.display = showSizeCtrl ? "grid" : "none";
-        pbrNormalScaleCtrl.style.display = showSizeCtrl ? "grid" : "none";
-        if (!lightEnabled) {
-            toggleLight.checked = true;
-            toggleLight.dispatchEvent(new Event('change'));
-        }
-        updatePbrTextures();
+        const tex = new THREE.Texture(img);
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.RepeatWrapping;
+        tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+        if ('colorSpace' in tex) tex.colorSpace = THREE.LinearSRGBColorSpace;
+        tex.needsUpdate = true;
+        
+        const id = 'normal_' + Date.now();
+        userCustomNormals.push({ id, name: file.name.replace(/\.[^/.]+$/, ""), texture: tex });
+        updateCustomNormalUI();
+        
+        // 自动应用刚上传的
+        if (customNormalSelect) customNormalSelect.value = id;
+        applySelectedNormalTexture(id);
+        
+        URL.revokeObjectURL(img.src);
     };
     img.src = URL.createObjectURL(file);
 };
 
+function updateCustomNormalUI() {
+    if (!customNormalSelect) return;
+    if (userCustomNormals.length === 0) {
+        customNormalSelect.innerHTML = `<option value="" disabled selected>暂无自定义法线</option>`;
+        return;
+    }
+    customNormalSelect.innerHTML = userCustomNormals.map(n => 
+        `<option value="${n.id}">🖼️ ${n.name}</option>`
+    ).join('');
+}
+
+if (customNormalSelect) {
+    customNormalSelect.onchange = () => {
+        applySelectedNormalTexture(customNormalSelect.value);
+    };
+}
+
+function applySelectedNormalTexture(id) {
+    if (pbrCustomNormalTexture) {
+        pbrCustomNormalTexture.dispose();
+        pbrCustomNormalTexture = null;
+    }
+    
+    if (id) {
+        const target = userCustomNormals.find(n => n.id === id);
+        if (target) {
+            pbrCustomNormalTexture = target.texture;
+            pbrCustomNormalTexture.needsUpdate = true;
+            
+            customNormalCtrl.style.display = "flex";
+            pbrTextureSelect.value = "none";
+            currentPbrType = "none";
+            
+            const showSizeCtrl = (pbrNoiseEnabled || pbrCustomNormalTexture);
+            pbrTexSizeCtrl.style.display = showSizeCtrl ? "grid" : "none";
+            pbrNormalScaleCtrl.style.display = showSizeCtrl ? "grid" : "none";
+            
+            if (!lightEnabled) {
+                toggleLight.checked = true;
+                toggleLight.dispatchEvent(new Event('change'));
+            }
+            updatePbrTextures();
+        }
+    } else {
+        customNormalCtrl.style.display = "none";
+        updatePbrTextures();
+    }
+}
+
+if (btnDeleteCustomNormal) {
+    btnDeleteCustomNormal.onclick = () => {
+        const targetId = customNormalSelect.value;
+        if (!targetId) return;
+        if (!confirm("确定删除该法线贴图吗？")) return;
+        
+        const target = userCustomNormals.find(n => n.id === targetId);
+        if (target && target.texture) target.texture.dispose();
+        
+        userCustomNormals = userCustomNormals.filter(n => n.id !== targetId);
+        updateCustomNormalUI();
+        
+        // 如果删除的是当前正在使用的，就清除
+        if (pbrCustomNormalTexture === (target && target.texture)) {
+            clearCustomNormalBtn.onclick(); // 复用原来的清除逻辑
+        }
+    };
+}
+
+// 替换原来的 clearCustomNormalBtn.onclick，防止直接丢弃导致内存泄漏
 clearCustomNormalBtn.onclick = () => {
     if (pbrCustomNormalTexture) pbrCustomNormalTexture.dispose();
     pbrCustomNormalTexture = null;
     customNormalCtrl.style.display = "none";
     customNormalInput.value = "";
+    if (customNormalSelect) customNormalSelect.value = "";
+    
     const showSizeCtrl = (currentPbrType !== "none" || pbrNoiseEnabled);
     pbrTexSizeCtrl.style.display = showSizeCtrl ? "grid" : "none";
     pbrNormalScaleCtrl.style.display = showSizeCtrl ? "grid" : "none";
@@ -3367,10 +3469,20 @@ function switchClothMaterial() {
     const hasWater = waterEnabled && lightEnabled;
     const needsShader = hasPbr || hasWater || pbrAlphaTexture !== null || holoEnabled;
 
+    // ============================================================
+    // 🔧 修复要点：泼水 / 镭射 时必须给 normalMap 一个非 null 的占位，
+    //    否则 Three.js 不会定义 USE_NORMALMAP_TANGENTSPACE 宏，
+    //    onBeforeCompile 里的水珠 / 镭射片段就会被整块跳过。
+    // ============================================================
     let baseNormalForShader = pbrBaseNormalTexture;
-    if (holoEnabled && !baseNormalForShader) {
+    if (!baseNormalForShader && (holoEnabled || hasWater)) {
         baseNormalForShader = ensureDummyNormal();
     }
+    // 判断当前用的是否是 1x1 中性灰占位图（true 时 repeat 必须为 1）
+    const useDummyNormal = baseNormalForShader &&
+        baseNormalForShader === dummyNormalTexture &&
+        !pbrBaseNormalTexture;
+
     const useLighting = lightEnabled || hasPbr;
     let mat;
 
@@ -3379,6 +3491,7 @@ function switchClothMaterial() {
 
     if (useLighting) {
         if (lightEnabled && lightStyleSelect.value === "toonShadow") {
+            // ---------- 三渲二 ----------
             const toonGrad = makeToonGradient(parseInt(toonStepsSlider.value));
             const toonProps = {
                 color: textureEnabled && imageTexture ? 0xffffff : new THREE.Color(currentClothColor),
@@ -3398,6 +3511,7 @@ function switchClothMaterial() {
             }
             mat = new THREE.MeshToonMaterial(toonProps);
         } else {
+            // ---------- 写实 ----------
             const stdProps = {
                 color: textureEnabled && imageTexture ? 0xffffff : new THREE.Color(currentClothColor),
                 map: textureEnabled && imageTexture ? imageTexture : null,
@@ -3409,7 +3523,7 @@ function switchClothMaterial() {
                 metalness: metal,
                 wireframe: showGrid,
                 flatShading: flatShadingEnabled,
-                envMapIntensity: 1.0, // 👈 从 0.4 改为 1.0，提亮环境反射
+                envMapIntensity: 1.0,
                 alphaMap: finalAlphaMap,
                 alphaTest: finalAlphaMap ? 0.05 : 0
             };
@@ -3420,6 +3534,7 @@ function switchClothMaterial() {
             mat = new THREE.MeshStandardMaterial(stdProps);
         }
     } else {
+        // ---------- 无光照（Basic）----------
         const basicProps = {
             color: textureEnabled && imageTexture ? 0xffffff : new THREE.Color(currentClothColor),
             map: textureEnabled && imageTexture ? imageTexture : null,
@@ -3434,10 +3549,14 @@ function switchClothMaterial() {
         mat = new THREE.MeshBasicMaterial(basicProps);
     }
 
+    // ============================================================
+    // 自定义 Shader 注入（PBR 法线 / 噪波 / 水珠 / 镭射 / 破洞 alpha）
+    // ============================================================
     if (needsShader) {
-        const repBase = baseNormalForShader && baseNormalForShader.repeat
+        // dummy 法线用 1x1 repeat，避免 1px 灰图被平铺成噪点
+        const repBase = (baseNormalForShader && baseNormalForShader.repeat && !useDummyNormal)
             ? baseNormalForShader.repeat.clone()
-            : new THREE.Vector2(pbrTexSize, pbrTexSize);
+            : new THREE.Vector2(1, 1);
 
         mat.onBeforeCompile = (shader) => {
             activeShaderRef = shader;
@@ -3474,6 +3593,7 @@ function switchClothMaterial() {
                 mapN = normalize(mapN);
                 `;
             }
+
             let waterUniforms = "";
             let waterLogic = "";
             if (waterEnabled && waterDropNormalTexture) {
@@ -3493,6 +3613,7 @@ function switchClothMaterial() {
                 `;
             }
 
+            // ---- 顶点着色器 ----
             shader.vertexShader = shader.vertexShader.replace(
                 '#include <common>',
                 `
@@ -3511,6 +3632,7 @@ function switchClothMaterial() {
                 `
             );
 
+            // ---- 片段着色器 ----
             shader.fragmentShader = shader.fragmentShader.replace(
                 '#include <common>',
                 `
@@ -3561,6 +3683,8 @@ function switchClothMaterial() {
                 #endif
                 `
             );
+
+            // ---- 镭射反光 ----
             if (holoEnabled) {
                 shader.uniforms.uHoloIntensity = { value: parseFloat(holoIntensitySlider.value) };
                 shader.fragmentShader = shader.fragmentShader.replace(
@@ -3588,6 +3712,7 @@ function switchClothMaterial() {
             }
         };
     }
+
     mat.needsUpdate = true;
     clothMesh.material = mat;
     clothMesh.castShadow = shadowEnabled;
@@ -4281,6 +4406,156 @@ function tearAtParticles() {
     }
 }
 
+function tryStartClothMove(e) {
+    if (!cloth || !clothMesh) return false;
+    
+    // 清理可能存在的抓取状态，防止冲突
+    if (typeof endDrag === 'function') endDrag();
+    multiTouchMap.clear();
+
+    raycaster.setFromCamera(getNDC(e), camera);
+    const hits = raycaster.intersectObject(clothMesh, true);
+    let hitPoint = new THREE.Vector3();
+    
+    if (hits.length > 0) {
+        hitPoint.copy(hits[0].point);
+    } else {
+        // 如果没点中网格，通过二维平面虚拟出点
+        if (!raycaster.ray.intersectPlane(clothMovePlane, hitPoint)) return false;
+    }
+    
+    lastClothMovePoint = hitPoint.clone(); 
+    clothMovePlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 0, 1), hitPoint);
+    isMovingCloth = true;
+    return true;
+}
+
+function updateClothMove(e) {
+    if (!isMovingCloth || !lastClothMovePoint) return;
+    raycaster.setFromCamera(getNDC(e), camera);
+    const newPoint = new THREE.Vector3();
+    if (!raycaster.ray.intersectPlane(clothMovePlane, newPoint)) return;
+    
+    // 计算这一帧鼠标移动的增量
+    const dx = newPoint.x - lastClothMovePoint.x;
+    const dy = newPoint.y - lastClothMovePoint.y;
+    lastClothMovePoint.copy(newPoint);
+    
+    // 检查布料是否有“固定点”（画了红线，或默认的顶部固定）
+    let hasPinned = false;
+    for (let i = 0; i < cloth.particles.length; i++) {
+        if (cloth.particles[i].pinned) {
+            hasPinned = true;
+            break;
+        }
+    }
+
+    for (let i = 0; i < cloth.particles.length; i++) {
+        const p = cloth.particles[i];
+        
+        if (hasPinned) {
+            // 【核心修复】：如果有固定点，只移动固定点。
+            // 相当于你提起了布料的边缘，其余部分交给物理引擎通过弹簧拉拽，自然产生摆动！
+            if (p.pinned) {
+                p.x += dx;
+                p.y += dy;
+                p.oldX += dx;
+                p.oldY += dy;
+            }
+        } else {
+            // 如果布料没有任何固定点（处于自由状态），则移动所有点
+            // 但让 oldX/oldY 仅跟随 0.9 倍，制造一点点“惯性差”，从而产生自然的形变和漂浮感
+            p.x += dx;
+            p.y += dy;
+            p.oldX += dx * 0.9;
+            p.oldY += dy * 0.9;
+        }
+    }
+    // 注意：这里千万不要调用 cloth.updateGeo()
+    // 让 animate() 里的物理引擎循环去自动刷新，才会自然解算！
+}
+
+function applyClothRotation(newRotX, newRotY, newRotZ) {
+    if (!cloth || !cloth.particles) {
+        prevRotX = newRotX;
+        prevRotY = newRotY;
+        prevRotZ = newRotZ;
+        return;
+    }
+
+    // 角度转弧度
+    const targetX = newRotX * Math.PI / 180;
+    const targetY = newRotY * Math.PI / 180;
+    const targetZ = newRotZ * Math.PI / 180;
+    const prevX = prevRotX * Math.PI / 180;
+    const prevY = prevRotY * Math.PI / 180;
+    const prevZ = prevRotZ * Math.PI / 180;
+
+    // 计算增量
+    const deltaX = targetX - prevX;
+    const deltaY = targetY - prevY;
+    const deltaZ = targetZ - prevZ;
+
+    if (Math.abs(deltaX) > 1e-5 || Math.abs(deltaY) > 1e-5 || Math.abs(deltaZ) > 1e-5) {
+        // 1. 计算布料的几何中心（质心）
+        let cx = 0, cy = 0, cz = 0;
+        const n = cloth.particles.length;
+        for (let p of cloth.particles) { cx += p.x; cy += p.y; cz += p.z; }
+        cx /= n; cy /= n; cz /= n;
+
+        const cosX = Math.cos(deltaX), sinX = Math.sin(deltaX);
+        const cosY = Math.cos(deltaY), sinY = Math.sin(deltaY);
+        const cosZ = Math.cos(deltaZ), sinZ = Math.sin(deltaZ);
+
+        // 2. 对每个粒子进行三维旋转
+        for (let p of cloth.particles) {
+            // 相对于质心的坐标
+            let dx = p.x - cx;
+            let dy = p.y - cy;
+            let dz = p.z - cz;
+
+            // 绕 X 轴旋转
+            let ny = dy * cosX - dz * sinX;
+            let nz = dy * sinX + dz * cosX;
+            dy = ny; dz = nz;
+
+            // 绕 Y 轴旋转
+            let nx = dx * cosY + dz * sinY;
+            nz = -dx * sinY + dz * cosY;
+            dx = nx; dz = nz;
+
+            // 绕 Z 轴旋转
+            nx = dx * cosZ - dy * sinZ;
+            ny = dx * sinZ + dy * cosZ;
+            dx = nx; dy = ny;
+
+            // 更新位置
+            p.x = cx + dx;
+            p.y = cy + dy;
+            p.z = cz + dz;
+
+            // ==============================================================
+            // 🔧 核心修改：不再强行完美同步 oldX/Y/Z！
+            // 我们让历史坐标向新坐标靠拢，产生一个速度差，也就是“惯性”。
+            // 这样物理引擎在下一帧解算时，就会把布料当成在空气中猛烈甩动，
+            // 弹簧约束、风力、重力都会瞬间介入，产生布料该有的波浪和褶皱。
+            // ==============================================================
+            p.oldX += (p.x - p.oldX) * 0.1;
+            p.oldY += (p.y - p.oldY) * 0.1;
+            p.oldZ += (p.z - p.oldZ) * 0.1;
+        }
+    }
+
+    prevRotX = newRotX;
+    prevRotY = newRotY;
+    prevRotZ = newRotZ;
+}
+
+function endClothMove() {
+    isMovingCloth = false;
+    lastClothMovePoint = null;
+}
+
 function tryStartMultiDrag(touch) {
     if (!isSimulating || !clothMesh || !cloth) return;
     const ndc = getNDCFromClient(touch.clientX, touch.clientY);
@@ -4522,6 +4797,14 @@ function cutCloth(e) {
 
 function onPointerDown(e) {
     if (!editMode) {
+        // 👇 新增：如果开启了整体移动，优先执行
+        if (clothMoveEnabled) {
+            if (tryStartClothMove(e)) {
+                e.preventDefault();
+                return; // 直接返回，不再执行后续的抓取拉扯
+            }
+        }
+        
         if (dragMode === "knife") { isCutting = true; cutCloth(e); return; }
         if (clothMesh && tryStartDrag(e)) e.preventDefault();
         return;
@@ -4581,6 +4864,13 @@ function onPointerDown(e) {
 
 function onPointerMove(e) {
     if (!editMode) {
+        // 👇 新增：处理整体移动
+        if (isMovingCloth) { 
+            e.preventDefault(); 
+            updateClothMove(e); 
+            return; 
+        }
+
         if (isCutting) { cutCloth(e); return; }
         if (draggedParticles.length > 0) { e.preventDefault(); updateDragTarget(e); }
         return;
@@ -4610,6 +4900,12 @@ function onPointerMove(e) {
 
 function onPointerUp() {
     if (!editMode) {
+        // 👇 新增：结束整体移动
+        if (isMovingCloth) { 
+            endClothMove(); 
+            return; 
+        }
+
         if (isCutting) { isCutting = false; saveHistory(); return; }
         if (draggedParticles.length > 0) endDrag();
         return;
@@ -4939,6 +5235,10 @@ function destroyCloth() {
     if (tearCtx) { tearCtx.fillStyle = '#ffffff'; tearCtx.fillRect(0, 0, tearCanvas.width, tearCanvas.height); if (tearTexture) tearTexture.needsUpdate = true; }
     decorations.forEach(d => scene.remove(d.mesh));
     decorations = [];
+    clothMoveEnabled = false;
+    endClothMove();
+    const moveToggle = document.getElementById("toggleClothMove");
+    if (moveToggle) moveToggle.checked = false;
 }
 
 class Cloth {
@@ -5151,10 +5451,10 @@ class Cloth {
             let r = baseRadius;
             if (decorMap.has(idx)) {
                 const w = decorMap.get(idx);
-                // 👇 增大带有装饰物粒子的碰撞排斥半径，防止布料直接穿透装饰
-                if (w === 'heavy') r *= 3.0; 
-                else if (w === 'light') r *= 2.5;
-                else r *= 2.5; 
+                // 🔧 调低排斥半径，避免布料被撑得过开
+                if (w === 'heavy') r *= 1.5; 
+                else if (w === 'light') r *= 1.15;
+                else r *= 1.2; 
             }
             return r;
         };
@@ -5216,24 +5516,30 @@ class Cloth {
                                 let d = Math.sqrt(d2) || 0.001;
                                 let nx = dx / d, ny = dy / d, nz = dz / d;
 
-                                const overlap = Math.min(currentRadius - d, currentRadius * 0.5) * parseFloat(collisionForceSlider.value);
+                                // 限制单次推开的最大距离，防止瞬间弹飞
+                                const overlapDist = currentRadius - d;
+                                const maxPush = currentRadius * 0.25;
+                                const pushAmount = Math.min(overlapDist, maxPush) * parseFloat(collisionForceSlider.value);
 
-                                if (decorMap.get(i) === 'heavy') p1.z -= overlap * 0.5;
-                                if (decorMap.get(j) === 'heavy') p2.z -= overlap * 0.5;
+                                if (decorMap.get(i) === 'heavy') p1.z -= pushAmount * 0.5;
+                                if (decorMap.get(j) === 'heavy') p2.z -= pushAmount * 0.5;
 
                                 const w1 = (p1.pinned || isP1Locked) ? 0 : p1.invMass;
                                 const w2 = (p2.pinned || isP2Locked) ? 0 : p2.invMass;
                                 const wSum = w1 + w2;
                                 if (wSum === 0) continue;
 
-                                const move1 = overlap * (w1 / wSum);
-                                const move2 = overlap * (w2 / wSum);
+                                const move1 = pushAmount * (w1 / wSum);
+                                const move2 = pushAmount * (w2 / wSum);
 
+                                // 移动位置
                                 p1.x -= nx * move1; p1.y -= ny * move1; p1.z -= nz * move1;
                                 p2.x += nx * move2; p2.y += ny * move2; p2.z += nz * move2;
 
-                                p1.oldX -= nx * move1; p1.oldY -= ny * move1; p1.oldZ -= nz * move1;
-                                p2.oldX += nx * move2; p2.oldY += ny * move2; p2.oldZ += nz * move2;
+                                // 🔧 同步历史位置，并加入阻尼（摩擦），减少由于碰撞产生的多余弹跳
+                                const damping = 0.6; 
+                                p1.oldX -= nx * move1 * damping; p1.oldY -= ny * move1 * damping; p1.oldZ -= nz * move1 * damping;
+                                p2.oldX += nx * move2 * damping; p2.oldY += ny * move2 * damping; p2.oldZ += nz * move2 * damping;
                             }
                         }
                     }
@@ -5408,6 +5714,8 @@ document.getElementById("genBtn").onclick = () => {
 
     setEditMode(false);
     if (!isSimulating) pauseBtn.click();
+    if (rotXSlider) { rotXSlider.value = 0; rotXValue.textContent = "0°"; prevRotX = 0; }
+    if (rotZSlider) { rotZSlider.value = 0; rotZValue.textContent = "0°"; prevRotZ = 0; }
 };
 
 function setEditMode(on) {
@@ -5547,6 +5855,9 @@ document.getElementById("resetBtn").onclick = () => {
     filterStrengthSlider.value = 0.3;
     currentFilterStrength = 0.3;
     filterStrengthValue.textContent = "0.30";
+    if (rotXSlider) { rotXSlider.value = 0; rotXValue.textContent = "0°"; prevRotX = 0; }
+    if (rotZSlider) { rotZSlider.value = 0; rotZValue.textContent = "0°"; prevRotZ = 0; }
+    if (resetRotBtn) resetRotBtn.click();
 
     if (dragDepthSelect) {
         dragDepthSelect.value = "auto";
@@ -5661,6 +5972,11 @@ toggleHolo.onchange = () => {
     }
     if (clothMesh) switchClothMaterial();
 };
+
+bindToggle("toggleClothMove", (checked) => {
+    clothMoveEnabled = checked;
+    if (!checked) endClothMove();
+});
 
 bindToggle("toggleWind", (checked) => windEnabled = checked);
 bindToggle("toggleCollision", (checked) => collisionEnabled = checked);
@@ -5976,61 +6292,124 @@ if (uiPanel) {
         });
     });
 })();
+// ===== 自定义装饰管理 =====
+let userCustomModels = []; // 存储 { id, name }
+
+const customDecorSelect = document.getElementById("customDecorSelect");
+const btnDeleteCustomDecor = document.getElementById("btnDeleteCustomDecor");
 const decorModelInput = document.getElementById("decorModelInput");
+
 if (decorModelInput) {
     decorModelInput.addEventListener("change", (e) => {
         const file = e.target.files[0];
         if (!file) return;
         
-        // 提示用户正在加载
-        console.log("正在解析自定义模型...", file.name);
         const url = URL.createObjectURL(file);
-        
         gltfLoader.load(url, (gltf) => {
             const model = gltf.scene;
-            
-            // 1. 自动计算尺寸并缩放居中 (复用原版逻辑)
             const box = new THREE.Box3().setFromObject(model);
             const size = box.getSize(new THREE.Vector3());
             const center = box.getCenter(new THREE.Vector3());
-            
-            const targetSize = 0.06 * 2.2; // 与系统自带模型保持同一基准大小
+            const targetSize = 0.06 * 2.2; 
             const maxDim = Math.max(size.x, size.y, size.z);
             const autoScale = targetSize / maxDim;
-            
             model.scale.setScalar(autoScale);
             model.position.sub(center.multiplyScalar(autoScale));
             model.userData.baseRadius = targetSize * 0.5;
-
-            // 开启阴影
+            
             model.traverse((child) => {
-                if (child.isMesh) {
-                    child.castShadow = true;
-                    child.receiveShadow = true;
-                }
+                if (child.isMesh) { child.castShadow = true; child.receiveShadow = true; }
             });
             
-            // 💡 核心修复：将解析好的模型注册到全局模型池 'custom_upload' 类型中
-            loadedModels['custom_upload'] = model;
+            const modelId = 'custom_' + Date.now();
+            loadedModels[modelId] = model;
             
-            // 自动切换下拉框到自定义模型选项，方便用户直接使用
+            // 保存记录并更新UI
+            userCustomModels.push({ id: modelId, name: file.name.replace('.glb','') });
+            updateCustomDecorUI();
+            
+            // 自动选中新上传的模型
+            if (customDecorSelect) customDecorSelect.value = modelId;
             if (decorTypeSelect) decorTypeSelect.value = 'custom_upload';
             if (selDecorType) selDecorType.value = 'custom_upload';
             
-            // 如果当前正在编辑某个装饰，直接替换成这个模型
-            if (selectedDecorIndex >= 0 && decorPlacementList[selectedDecorIndex]) {
-                decorPlacementList[selectedDecorIndex].type = 'custom_upload';
-                rebuildAllDecorations3D();
-                redrawPreview();
-            }
-            
-            alert(window.currentLang === 'zh' ? "自定义模型加载成功！请在面板中选择“上传的自定义模型”进行放置。" : "Custom model loaded successfully!");
             URL.revokeObjectURL(url);
-            
         }, undefined, (err) => {
-            console.error("模型加载失败:", err);
-            alert("模型加载失败！请确保文件是标准的 .glb 格式，且没有损坏。");
+            alert("模型加载失败！请确保是标准的 .glb 格式");
             URL.revokeObjectURL(url);
         });
+    });
+}
+
+function updateCustomDecorUI() {
+    if (!customDecorSelect) return;
+    if (userCustomModels.length === 0) {
+        customDecorSelect.innerHTML = `<option value="" disabled selected>暂无自定义装饰</option>`;
+        return;
+    }
+    customDecorSelect.innerHTML = userCustomModels.map(m => 
+        `<option value="${m.id}">📦 ${m.name}</option>`
+    ).join('');
+}
+
+if (btnDeleteCustomDecor) {
+    btnDeleteCustomDecor.onclick = () => {
+        const targetId = customDecorSelect.value;
+        if (!targetId) return;
+        if (!confirm("确定删除该自定义装饰吗？")) return;
+        
+        // 从数据中移除
+        userCustomModels = userCustomModels.filter(m => m.id !== targetId);
+        delete loadedModels[targetId];
+        updateCustomDecorUI();
+        
+        // 如果当前正在使用该模型，取消选中
+        if (decorTypeSelect && decorTypeSelect.value === 'custom_upload') {
+            decorTypeSelect.value = 'star';
+        }
+    };
+}
+
+// 修改 create3DDecorMesh 中提取模型的逻辑
+// 找到 if (loadedModels[type]) 那段，把原来的逻辑改为：
+// 如果 type 是 'custom_upload'，则从 customDecorSelect 取当前ID
+// 否则直接用 loadedModels[type]
+if (btnPourWater) btnPourWater.onclick = pourWater;
+// 强制绑定泼水按钮
+if (btnPourWater) {
+    btnPourWater.onclick = () => {
+        console.log("【泼水按钮】被点击了！");
+        pourWater();
+    };
+}
+const rotXSlider = document.getElementById("rotXSlider");
+const rotYSlider = document.getElementById("rotYSlider");
+const rotZSlider = document.getElementById("rotZSlider");
+const rotXValue = document.getElementById("rotXValue");
+const rotYValue = document.getElementById("rotYValue");
+const rotZValue = document.getElementById("rotZValue");
+const resetRotBtn = document.getElementById("resetRotBtn");
+
+function handleRotationChange() {
+    if (rotXSlider) rotXValue.textContent = rotXSlider.value + "°";
+    if (rotYSlider) rotYValue.textContent = rotYSlider.value + "°";
+    if (rotZSlider) rotZValue.textContent = rotZSlider.value + "°";
+    
+    applyClothRotation(
+        parseFloat(rotXSlider ? rotXSlider.value : 0), 
+        parseFloat(rotYSlider ? rotYSlider.value : 0), 
+        parseFloat(rotZSlider ? rotZSlider.value : 0)
+    );
+}
+if (rotXSlider) rotXSlider.addEventListener("input", handleRotationChange);
+if (rotYSlider) rotYSlider.addEventListener("input", handleRotationChange);
+if (rotZSlider) rotZSlider.addEventListener("input", handleRotationChange);
+
+if (resetRotBtn) {
+    resetRotBtn.addEventListener("click", () => {
+        if (rotXSlider) rotXSlider.value = 0;
+        if (rotYSlider) rotYSlider.value = 0;
+        if (rotZSlider) rotZSlider.value = 0;
+        handleRotationChange();
     });
 }
