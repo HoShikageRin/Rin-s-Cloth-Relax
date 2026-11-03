@@ -22,6 +22,8 @@
 具体如图所示
 ![alt text](./3dsample.png)
 
+导出设置如下
+![alt text](./3d_output1.png)![alt text](./3d_output2.png)![alt text](./3d_output3.png)
 💡 推荐 Chrome / Edge；网格分辨率越高，性能开销越大
 
 📌 仅供个人学习娱乐使用 
