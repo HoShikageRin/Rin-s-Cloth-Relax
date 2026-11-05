@@ -117,7 +117,7 @@ const translations = {
         reset_btn: "重置全部", reset_confirm: "确定要重置全部吗？这将清空所有上传的图片和参数设置。",
         alert_no_img: "请先上传图片！", drag_drop_hint: "松开鼠标上传图片", back_to_edit: "⟵ 返回编辑",
         sign_text: "上传的图片只会在浏览器内处理<br>请勿使用侵犯第三方权利的图片或素材<br>在法律允许的范围内，开发者不对使用本应用造成的损失承担责任",
-        canvas_credits: "开源及字体致谢：Three.js | 包图小白体 | 极影毁片和圆 | 宅在家自动笔体",
+        canvas_credits: "开源及字体致谢：Three.js | 包图小白体 | 极影毁片和圆",
         btn_pour_water: "泼水", water_interaction: "泼水交互", evap_speed: "水分挥发速度", evap_speed_desc: "水分自然挥发的速度。快速甩动布料可加速变干。",
         wetness_level: "当前湿度", water_drop_size: "水珠大小", water_drop_density: "水珠密度",
         water_drop_size_desc: "单个水滴的视觉大小。", water_drop_density_desc: "水滴在布料上的密集程度。",
