@@ -1100,3 +1100,18 @@ input[type="color"]::-moz-color-swatch {
 .project-link-btn:active {
   transform: translateY(1px) scale(0.95);
 }
+/* ============ 设置项提示按钮微调 ============ */
+.ctrl label .tooltip-wrap {
+    margin-left: 6px;
+    flex-shrink: 0;
+}
+.ctrl label .tooltip-wrap i {
+    font-size: 12px;
+    opacity: 0.55;
+    transition: opacity 0.2s, color 0.2s, transform 0.3s var(--spring-curve);
+}
+.ctrl label .tooltip-wrap:hover i {
+    opacity: 1;
+    color: var(--primary);
+    transform: scale(1.15);
+}

@@ -97,6 +97,29 @@ let pinStrokeList = [];
 let currentPinStroke = [];
 let currentPinStrokeWidth = 0.04;
 
+// ============ 新增物理参数 ============
+let plasticityEnabled = false;
+let plasticityRate = 0.05;
+let plasticityThreshold = 1.05;
+let plasticityRecovery = 0;
+let plasticityMax = 3.0;
+let bendStiffness = 0.1;
+let shearStiffness = 1.0;
+let stiffX = 1.0;
+let stiffY = 1.0;
+let springDamping = 0.0;
+let windSpatialFreq = 4.0;
+let windZ = 0.0;
+let gravityAngle = 0;
+let groundCollisionEnabled = true;
+let groundY = -1.5;
+let groundFriction = 0.8;
+let collisionFriction = 0.6;
+let dragStrength = 0.4;
+let airDampingExp = 0.2;
+let maxVelocity = 0.20;
+let velocityRetention = 1.0;
+
 let drawMode = "pinstroke";
 let eraserMode = "whole";
 let isDrawing = false;
@@ -575,30 +598,177 @@ function create3DDecorMesh(type, colorHex, matType, scale = 1.0) {
 
 
 
+// 新物理参数的默认值（用于缺省字段兜底）
+const physicsExtraDefaults = {
+    plasticity: false, plRate: 0.05, plThreshold: 1.05, plRecovery: 0, plMax: 3.0,
+    bend: 0.10, shear: 1.0, stiffX: 1.0, stiffY: 1.0, springDamp: 0.0,
+    windSpatial: 4.0, windZ: 0.0,
+    gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
+    collFric: 0.6, dragStr: 0.4, airExp: 0.2, maxVel: 0.20, velRet: 1.0
+};
+
 const physicsPresets = {
-    cotton: { stiffness: 0.45, maxStretch: 1.5, damping: 0.07, mass: 25.0, meshRes: 24, maxDrag: 0.6, iterations: 6, hz: 100 },
-    washed_cotton: { stiffness: 0.35, maxStretch: 1.6, damping: 0.08, mass: 30.0, meshRes: 24, maxDrag: 0.7, iterations: 6, hz: 100 },
-    polyester: { stiffness: 0.8, maxStretch: 1.1, damping: 0.08, mass: 20.0, meshRes: 28, maxDrag: 0.4, iterations: 6, hz: 100 },
-    tr_blend: { stiffness: 0.6, maxStretch: 1.25, damping: 0.09, mass: 35.0, meshRes: 26, maxDrag: 0.5, iterations: 6, hz: 100 },
-    worsted_wool: { stiffness: 0.85, maxStretch: 1.1, damping: 0.12, mass: 70.0, meshRes: 32, maxDrag: 0.3, iterations: 5, hz: 110 },
-    denim: { stiffness: 0.85, maxStretch: 1.1, damping: 0.1, mass: 60.0, meshRes: 32, maxDrag: 0.4, iterations: 4, hz: 120 },
-    leather: { stiffness: 0.95, maxStretch: 1.05, damping: 0.12, mass: 80.0, meshRes: 36, maxDrag: 0.4, iterations: 4, hz: 120 },
-    rubber: { stiffness: 0.15, maxStretch: 3.0, damping: 0.04, mass: 10.0, meshRes: 20, maxDrag: 2.0, iterations: 15, hz: 120 },
-    silk: { stiffness: 0.25, maxStretch: 1.8, damping: 0.06, mass: 5.0, meshRes: 40, maxDrag: 0.8, iterations: 8, hz: 100 },
-    linen: { stiffness: 0.75, maxStretch: 1.15, damping: 0.08, mass: 15.0, meshRes: 26, maxDrag: 0.5, iterations: 6, hz: 100 },
-    chiffon: { stiffness: 0.2, maxStretch: 1.4, damping: 0.05, mass: 2.0, meshRes: 48, maxDrag: 1.0, iterations: 10, hz: 100 },
-    canvas: { stiffness: 0.9, maxStretch: 1.05, damping: 0.1, mass: 70.0, meshRes: 40, maxDrag: 0.3, iterations: 5, hz: 120 },
-    wool: { stiffness: 0.65, maxStretch: 1.2, damping: 0.09, mass: 45.0, meshRes: 32, maxDrag: 0.5, iterations: 6, hz: 100 },
-    velvet: { stiffness: 0.5, maxStretch: 1.3, damping: 0.08, mass: 50.0, meshRes: 36, maxDrag: 0.6, iterations: 7, hz: 100 },
-    silicone: { stiffness: 0.8, maxStretch: 1.2, damping: 0.15, mass: 100.0, meshRes: 30, maxDrag: 1.2, iterations: 8, hz: 120 },
-    metal: { stiffness: 1.0, maxStretch: 1.0, damping: 0.2, mass: 150.0, meshRes: 32, maxDrag: 0.2, iterations: 3, hz: 120 },
-    paper: { stiffness: 0.6, maxStretch: 1.02, damping: 0.05, mass: 2.0, meshRes: 16, maxDrag: 0.2, iterations: 4, hz: 60 },
-    neoprene: { stiffness: 0.35, maxStretch: 2.2, damping: 0.12, mass: 50.0, meshRes: 24, maxDrag: 1.0, iterations: 8, hz: 100 },
-    plastic: { stiffness: 0.4, maxStretch: 1.6, damping: 0.03, mass: 5.0, meshRes: 28, maxDrag: 1.5, iterations: 10, hz: 100 },
-    metalsheet: { stiffness: 1.0, maxStretch: 1.0, damping: 0.25, mass: 200.0, meshRes: 18, maxDrag: 0.2, iterations: 3, hz: 120 },
-    jelly: { stiffness: 0.1, maxStretch: 2.8, damping: 0.02, mass: 90.0, meshRes: 24, maxDrag: 2.5, iterations: 15, hz: 120 },
-    spidersilk: { stiffness: 0.15, maxStretch: 3.0, damping: 0.04, mass: 0.5, meshRes: 60, maxDrag: 3.0, iterations: 12, hz: 100 },
-    clingfilm: { stiffness: 0.5, maxStretch: 2.5, damping: 0.01, mass: 1.0, meshRes: 30, maxDrag: 2.0, iterations: 12, hz: 120 }
+    cotton: {
+        stiffness: 0.45, maxStretch: 1.5, damping: 0.07, mass: 25.0, meshRes: 24, maxDrag: 0.6, iterations: 6, hz: 100,
+        plasticity: false, plRate: 0.05, plThreshold: 1.05, plRecovery: 0.001, plMax: 2.0,
+        bend: 0.15, shear: 1.0, stiffX: 1.0, stiffY: 1.0, springDamp: 0.02,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
+        collFric: 0.6, dragStr: 0.40, airExp: 0.20, maxVel: 0.20, velRet: 1.0
+    },
+    washed_cotton: {
+        stiffness: 0.35, maxStretch: 1.6, damping: 0.08, mass: 30.0, meshRes: 24, maxDrag: 0.7, iterations: 6, hz: 100,
+        plasticity: false, plRate: 0.08, plThreshold: 1.03, plRecovery: 0.002, plMax: 2.5,
+        bend: 0.10, shear: 0.9, stiffX: 1.0, stiffY: 1.0, springDamp: 0.02,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
+        collFric: 0.6, dragStr: 0.45, airExp: 0.20, maxVel: 0.20, velRet: 1.0
+    },
+    polyester: {
+        stiffness: 0.8, maxStretch: 1.1, damping: 0.08, mass: 20.0, meshRes: 28, maxDrag: 0.4, iterations: 6, hz: 100,
+        plasticity: false, plRate: 0.02, plThreshold: 1.10, plRecovery: 0.005, plMax: 1.5,
+        bend: 0.35, shear: 1.3, stiffX: 1.2, stiffY: 1.2, springDamp: 0.03,
+        windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
+        collFric: 0.6, dragStr: 0.35, airExp: 0.22, maxVel: 0.18, velRet: 1.0
+    },
+    tr_blend: {
+        stiffness: 0.6, maxStretch: 1.25, damping: 0.09, mass: 35.0, meshRes: 26, maxDrag: 0.5, iterations: 6, hz: 100,
+        plasticity: false, plRate: 0.04, plThreshold: 1.08, plRecovery: 0.003, plMax: 1.8,
+        bend: 0.25, shear: 1.15, stiffX: 1.1, stiffY: 1.0, springDamp: 0.03,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
+        collFric: 0.6, dragStr: 0.40, airExp: 0.20, maxVel: 0.20, velRet: 1.0
+    },
+    worsted_wool: {
+        stiffness: 0.85, maxStretch: 1.1, damping: 0.12, mass: 70.0, meshRes: 32, maxDrag: 0.3, iterations: 5, hz: 110,
+        plasticity: false, plRate: 0.06, plThreshold: 1.03, plRecovery: 0.001, plMax: 2.0,
+        bend: 0.50, shear: 1.5, stiffX: 1.5, stiffY: 1.2, springDamp: 0.05,
+        windSpatial: 4.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.85,
+        collFric: 0.65, dragStr: 0.30, airExp: 0.25, maxVel: 0.16, velRet: 1.0
+    },
+    denim: {
+        stiffness: 0.85, maxStretch: 1.1, damping: 0.1, mass: 60.0, meshRes: 32, maxDrag: 0.4, iterations: 4, hz: 120,
+        plasticity: false, plRate: 0.03, plThreshold: 1.05, plRecovery: 0.002, plMax: 1.8,
+        bend: 0.60, shear: 1.8, stiffX: 1.6, stiffY: 1.1, springDamp: 0.06,
+        windSpatial: 4.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.85,
+        collFric: 0.70, dragStr: 0.30, airExp: 0.28, maxVel: 0.15, velRet: 1.0
+    },
+    leather: {
+        stiffness: 0.95, maxStretch: 1.05, damping: 0.12, mass: 80.0, meshRes: 36, maxDrag: 0.4, iterations: 4, hz: 120,
+        plasticity: true, plRate: 0.10, plThreshold: 1.02, plRecovery: 0.0005, plMax: 2.5,
+        bend: 0.80, shear: 2.0, stiffX: 1.5, stiffY: 1.5, springDamp: 0.08,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.9,
+        collFric: 0.75, dragStr: 0.28, airExp: 0.30, maxVel: 0.15, velRet: 1.0
+    },
+    rubber: {
+        stiffness: 0.15, maxStretch: 3.0, damping: 0.04, mass: 10.0, meshRes: 20, maxDrag: 2.0, iterations: 15, hz: 120,
+        plasticity: false, plRate: 0.001, plThreshold: 2.5, plRecovery: 0.05, plMax: 1.1,
+        bend: 0.05, shear: 0.3, stiffX: 1.0, stiffY: 1.0, springDamp: 0.15,
+        windSpatial: 3.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.7,
+        collFric: 0.50, dragStr: 0.50, airExp: 0.15, maxVel: 0.30, velRet: 1.0
+    },
+    silk: {
+        stiffness: 0.25, maxStretch: 1.8, damping: 0.06, mass: 5.0, meshRes: 40, maxDrag: 0.8, iterations: 8, hz: 100,
+        plasticity: false, plRate: 0.02, plThreshold: 1.15, plRecovery: 0.005, plMax: 1.5,
+        bend: 0.02, shear: 0.6, stiffX: 1.0, stiffY: 1.0, springDamp: 0.01,
+        windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.5,
+        collFric: 0.40, dragStr: 0.50, airExp: 0.15, maxVel: 0.25, velRet: 1.0
+    },
+    linen: {
+        stiffness: 0.75, maxStretch: 1.15, damping: 0.08, mass: 15.0, meshRes: 26, maxDrag: 0.5, iterations: 6, hz: 100,
+        plasticity: false, plRate: 0.05, plThreshold: 1.05, plRecovery: 0.002, plMax: 2.0,
+        bend: 0.30, shear: 1.2, stiffX: 1.3, stiffY: 1.0, springDamp: 0.03,
+        windSpatial: 4.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.85,
+        collFric: 0.65, dragStr: 0.40, airExp: 0.22, maxVel: 0.18, velRet: 1.0
+    },
+    chiffon: {
+        stiffness: 0.2, maxStretch: 1.4, damping: 0.05, mass: 2.0, meshRes: 48, maxDrag: 1.0, iterations: 10, hz: 100,
+        plasticity: false, plRate: 0.01, plThreshold: 1.20, plRecovery: 0.010, plMax: 1.3,
+        bend: 0.0, shear: 0.5, stiffX: 1.0, stiffY: 1.0, springDamp: 0.02,
+        windSpatial: 6.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.4,
+        collFric: 0.35, dragStr: 0.55, airExp: 0.10, maxVel: 0.28, velRet: 1.0
+    },
+    canvas: {
+        stiffness: 0.9, maxStretch: 1.05, damping: 0.1, mass: 70.0, meshRes: 40, maxDrag: 0.3, iterations: 5, hz: 120,
+        plasticity: false, plRate: 0.06, plThreshold: 1.03, plRecovery: 0.001, plMax: 2.0,
+        bend: 0.70, shear: 1.8, stiffX: 1.5, stiffY: 1.5, springDamp: 0.06,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.9,
+        collFric: 0.70, dragStr: 0.28, airExp: 0.30, maxVel: 0.15, velRet: 1.0
+    },
+    wool: {
+        stiffness: 0.65, maxStretch: 1.2, damping: 0.09, mass: 45.0, meshRes: 32, maxDrag: 0.5, iterations: 6, hz: 100,
+        plasticity: false, plRate: 0.05, plThreshold: 1.05, plRecovery: 0.002, plMax: 2.0,
+        bend: 0.40, shear: 1.3, stiffX: 1.2, stiffY: 1.1, springDamp: 0.04,
+        windSpatial: 4.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.85,
+        collFric: 0.65, dragStr: 0.35, airExp: 0.25, maxVel: 0.18, velRet: 1.0
+    },
+    velvet: {
+        stiffness: 0.5, maxStretch: 1.3, damping: 0.08, mass: 50.0, meshRes: 36, maxDrag: 0.6, iterations: 7, hz: 100,
+        plasticity: false, plRate: 0.08, plThreshold: 1.08, plRecovery: 0.003, plMax: 2.5,
+        bend: 0.20, shear: 0.9, stiffX: 1.1, stiffY: 1.0, springDamp: 0.04,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
+        collFric: 0.60, dragStr: 0.40, airExp: 0.22, maxVel: 0.20, velRet: 1.0
+    },
+    silicone: {
+        stiffness: 0.8, maxStretch: 1.2, damping: 0.15, mass: 100.0, meshRes: 30, maxDrag: 1.2, iterations: 8, hz: 120,
+        plasticity: false, plRate: 0.001, plThreshold: 2.0, plRecovery: 0.04, plMax: 1.2,
+        bend: 0.15, shear: 0.5, stiffX: 1.0, stiffY: 1.0, springDamp: 0.20,
+        windSpatial: 3.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.7,
+        collFric: 0.55, dragStr: 0.45, airExp: 0.25, maxVel: 0.20, velRet: 1.0
+    },
+    metal: {
+        stiffness: 1.0, maxStretch: 1.0, damping: 0.2, mass: 150.0, meshRes: 32, maxDrag: 0.2, iterations: 3, hz: 120,
+        plasticity: true, plRate: 0.15, plThreshold: 1.01, plRecovery: 0.0001, plMax: 1.5,
+        bend: 1.00, shear: 2.5, stiffX: 1.5, stiffY: 1.5, springDamp: 0.10,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
+        collFric: 0.80, dragStr: 0.25, airExp: 0.35, maxVel: 0.12, velRet: 1.0
+    },
+    paper: {
+        stiffness: 0.6, maxStretch: 1.02, damping: 0.05, mass: 2.0, meshRes: 16, maxDrag: 0.2, iterations: 4, hz: 60,
+        plasticity: true, plRate: 0.25, plThreshold: 1.01, plRecovery: 0, plMax: 2.0,
+        bend: 0.90, shear: 2.0, stiffX: 1.3, stiffY: 1.0, springDamp: 0.10,
+        windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.6,
+        collFric: 0.50, dragStr: 0.30, airExp: 0.15, maxVel: 0.20, velRet: 1.0
+    },
+    neoprene: {
+        stiffness: 0.35, maxStretch: 2.2, damping: 0.12, mass: 50.0, meshRes: 24, maxDrag: 1.0, iterations: 8, hz: 100,
+        plasticity: false, plRate: 0.02, plThreshold: 1.5, plRecovery: 0.02, plMax: 1.5,
+        bend: 0.40, shear: 0.8, stiffX: 1.0, stiffY: 1.0, springDamp: 0.15,
+        windSpatial: 3.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
+        collFric: 0.60, dragStr: 0.45, airExp: 0.22, maxVel: 0.22, velRet: 1.0
+    },
+    plastic: {
+        stiffness: 0.4, maxStretch: 1.6, damping: 0.03, mass: 5.0, meshRes: 28, maxDrag: 1.5, iterations: 10, hz: 100,
+        plasticity: true, plRate: 0.12, plThreshold: 1.10, plRecovery: 0.001, plMax: 3.0,
+        bend: 0.10, shear: 0.4, stiffX: 1.0, stiffY: 1.0, springDamp: 0.02,
+        windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.5,
+        collFric: 0.40, dragStr: 0.50, airExp: 0.12, maxVel: 0.28, velRet: 1.0
+    },
+    metalsheet: {
+        stiffness: 1.0, maxStretch: 1.0, damping: 0.25, mass: 200.0, meshRes: 18, maxDrag: 0.2, iterations: 3, hz: 120,
+        plasticity: true, plRate: 0.08, plThreshold: 1.02, plRecovery: 0, plMax: 2.5,
+        bend: 0.90, shear: 2.0, stiffX: 1.5, stiffY: 1.5, springDamp: 0.12,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
+        collFric: 0.80, dragStr: 0.22, airExp: 0.35, maxVel: 0.12, velRet: 1.0
+    },
+    jelly: {
+        stiffness: 0.1, maxStretch: 2.8, damping: 0.02, mass: 90.0, meshRes: 24, maxDrag: 2.5, iterations: 15, hz: 120,
+        plasticity: false, plRate: 0.001, plThreshold: 2.5, plRecovery: 0.06, plMax: 1.1,
+        bend: 0.05, shear: 0.2, stiffX: 1.0, stiffY: 1.0, springDamp: 0.25,
+        windSpatial: 3.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.5,
+        collFric: 0.45, dragStr: 0.55, airExp: 0.10, maxVel: 0.32, velRet: 1.0
+    },
+    spidersilk: {
+        stiffness: 0.15, maxStretch: 3.0, damping: 0.04, mass: 0.5, meshRes: 60, maxDrag: 3.0, iterations: 12, hz: 100,
+        plasticity: false, plRate: 0.005, plThreshold: 1.3, plRecovery: 0.010, plMax: 1.5,
+        bend: 0.0, shear: 0.3, stiffX: 1.0, stiffY: 1.0, springDamp: 0.005,
+        windSpatial: 7.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.3,
+        collFric: 0.30, dragStr: 0.60, airExp: 0.05, maxVel: 0.30, velRet: 1.0
+    },
+    clingfilm: {
+        stiffness: 0.5, maxStretch: 2.5, damping: 0.01, mass: 1.0, meshRes: 30, maxDrag: 2.0, iterations: 12, hz: 120,
+        plasticity: false, plRate: 0.03, plThreshold: 1.8, plRecovery: 0.005, plMax: 2.0,
+        bend: 0.10, shear: 0.5, stiffX: 1.0, stiffY: 1.0, springDamp: 0.03,
+        windSpatial: 6.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
+        collFric: 0.85, dragStr: 0.50, airExp: 0.10, maxVel: 0.28, velRet: 1.0
+    }
 };
 
 const tearPresets = {
@@ -1174,9 +1344,9 @@ btnDeleteSelected.onclick = () => {
 
 decorSizeSlider.oninput = () => { decorSizeValue.textContent = parseFloat(decorSizeSlider.value).toFixed(1); };
 
-physicsPresetSelect.onchange = () => {
-    const preset = physicsPresets[physicsPresetSelect.value];
-    if (!preset) return;
+// 一键把预设套用到所有物理滑块（原有 + 新扩展）
+function applyPresetToSliders(preset) {
+    // ===== 原有滑块 =====
     stiffnessSlider.value = preset.stiffness;
     maxStretchSlider.value = preset.maxStretch;
     dampingSlider.value = preset.damping;
@@ -1195,7 +1365,67 @@ physicsPresetSelect.onchange = () => {
     if (preset.hz) document.getElementById("physicsHzValue").textContent = parseInt(preset.hz);
     document.getElementById("maxDragDistanceValue").textContent = parseFloat(preset.maxDrag).toFixed(2);
 
+    // ===== 新扩展参数（直接写 value + display，不触发 input，不污染下拉框） =====
+    const setV = (id, val, dispId, fmt) => {
+        const el = document.getElementById(id);
+        const dv = dispId ? document.getElementById(dispId) : null;
+        if (el) el.value = val;
+        if (dv) dv.textContent = fmt ? fmt(val) : val;
+    };
+    const p = { ...physicsExtraDefaults, ...preset };
+
+    document.getElementById("togglePlasticity").checked = !!p.plasticity;
+    plasticityEnabled = !!p.plasticity;
+    setV("plasticityRate",      p.plRate,     "plasticityRateValue",     v => parseFloat(v).toFixed(2));
+    setV("plasticityThreshold", p.plThreshold,"plasticityThresholdValue",v => parseFloat(v).toFixed(2));
+    setV("plasticityRecovery",  p.plRecovery, "plasticityRecoveryValue", v => parseFloat(v).toFixed(3));
+    setV("plasticityMax",       p.plMax,      "plasticityMaxValue",      v => parseFloat(v).toFixed(1));
+    setV("bendStiffness",       p.bend,       "bendStiffnessValue",      v => parseFloat(v).toFixed(2));
+    setV("shearStiffness",      p.shear,      "shearStiffnessValue",     v => parseFloat(v).toFixed(2));
+    setV("stiffX",              p.stiffX,     "stiffXValue",             v => parseFloat(v).toFixed(2));
+    setV("stiffY",              p.stiffY,     "stiffYValue",             v => parseFloat(v).toFixed(2));
+    setV("springDamping",       p.springDamp, "springDampingValue",      v => parseFloat(v).toFixed(2));
+    setV("windSpatialFreq",     p.windSpatial,"windSpatialFreqValue",    v => parseFloat(v).toFixed(1));
+    setV("windZ",               p.windZ,      "windZValue",              v => parseFloat(v).toFixed(2));
+    setV("gravityAngle",        p.gravAngle,  "gravityAngleValue",       v => parseInt(v) + "°");
+    document.getElementById("toggleGround").checked = !!p.ground;
+    groundCollisionEnabled = !!p.ground;
+    setV("groundY",             p.groundY,    "groundYValue",            v => parseFloat(v).toFixed(2));
+    setV("groundFriction",      p.groundFric, "groundFrictionValue",     v => parseFloat(v).toFixed(2));
+    setV("collisionFriction",   p.collFric,   "collisionFrictionValue",  v => parseFloat(v).toFixed(2));
+    setV("dragStrength",        p.dragStr,    "dragStrengthValue",       v => parseFloat(v).toFixed(2));
+    setV("airDampingExp",       p.airExp,     "airDampingExpValue",      v => parseFloat(v).toFixed(2));
+    setV("maxVelocity",         p.maxVel,     "maxVelocityValue",        v => parseFloat(v).toFixed(2));
+    setV("velocityRetention",   p.velRet,     "velocityRetentionValue",  v => parseFloat(v).toFixed(3));
+
+    // 同步 JS 变量
+    plasticityRate     = p.plRate;
+    plasticityThreshold= p.plThreshold;
+    plasticityRecovery = p.plRecovery;
+    plasticityMax      = p.plMax;
+    bendStiffness      = p.bend;
+    shearStiffness     = p.shear;
+    stiffX             = p.stiffX;
+    stiffY             = p.stiffY;
+    springDamping      = p.springDamp;
+    windSpatialFreq    = p.windSpatial;
+    windZ              = p.windZ;
+    gravityAngle       = p.gravAngle;
+    groundY            = p.groundY;
+    groundFriction     = p.groundFric;
+    collisionFriction  = p.collFric;
+    dragStrength       = p.dragStr;
+    airDampingExp      = p.airExp;
+    maxVelocity        = p.maxVel;
+    velocityRetention  = p.velRet;
+
     if (preset.hz) accumulator = 0;
+}
+
+physicsPresetSelect.onchange = () => {
+    const preset = physicsPresets[physicsPresetSelect.value];
+    if (!preset) return;
+    applyPresetToSliders(preset);
 };
 
 materialPresetSelect.onchange = () => {
@@ -3967,6 +4197,176 @@ function resizeCanvas() {
     redrawPreview();
 }
 
+// ============================================================
+// Tooltip 自动注入：给每个设置项的 label 后追加「?」提示按钮
+// ============================================================
+function injectTooltips() {
+    // 控件 ID → i18n 描述 key（映射表可自由扩展）
+    const tooltipMap = {
+        // ---- 基础操作 ----
+        "pinRadius":            "pin_radius_desc",
+        "decorSizeSlider":      "decor_size_desc",
+        "selDecorSize":         "decor_size_desc",
+        "selDecorColor":        "decor_color_desc",
+        "decorTypeSelect":      "decor_type_desc",
+        "decorMatSelect":       "decor_mat_desc",
+        "decorWeightSelect":    "decor_weight_desc",
+        "selDecorType":         "decor_type_desc",
+        "selDecorMat":          "decor_mat_desc",
+        "selDecorWeight":       "decor_weight_desc",
+
+        // ---- 材质与滤镜 ----
+        "clothColor":           "base_color_desc",
+        "materialPreset":       "mat_preset_desc",
+        "pbrTextureSelect":     "pbr_tex_desc",
+        "textureFilterSelect":  "tex_filter_desc",
+        "filterStrength":       "tex_filter_strength_desc",
+        "pbrTextureSize":       "pbr_tex_size_desc",
+        "pbrNormalScale":       "pbr_normal_scale_desc",
+        "pbrNoiseStyle":        "pbr_noise_style_desc",
+        "pbrNoiseIntensity":    "pbr_noise_intensity_desc",
+        "pbrNoiseSize":         "pbr_noise_size_desc",
+
+        // ---- 物理基础 ----
+        "physicsPreset":        "preset_title_desc",
+        "stiffness":            "stiff_desc",
+        "maxStretch":           "max_stretch_desc",
+        "damping":              "damp_desc",
+        "gravity":              "gravity_desc",
+        "mass":                 "mass_desc",
+        "simMult":              "sim_mult_desc",
+        "meshRes":              "mesh_res_desc",
+        "constraintIterations": "constraint_iterations_desc",
+        "physicsHz":            "physics_hz_desc",
+        "collisionRadius":      "collision_radius_desc",
+        "collisionForce":       "collision_force_desc",
+        "collisionIters":       "collision_iters_desc",
+
+        // ---- 风力 ----
+        "wind":                 "wind_strength_desc",
+        "windDir":              "wind_dir_desc",
+        "windNoiseAmp":         "wind_noise_amp_desc",
+        "windRandom":           "wind_random_desc",
+        "windSpeed":            "wind_speed_desc",
+
+        // ---- 塑性形变（新） ----
+        "plasticityRate":       "plasticity_rate_desc",
+        "plasticityThreshold":  "plasticity_threshold_desc",
+        "plasticityRecovery":   "plasticity_recovery_desc",
+        "plasticityMax":        "plasticity_max_desc",
+
+        // ---- 弹簧高级（新） ----
+        "bendStiffness":        "bend_stiffness_desc",
+        "shearStiffness":       "shear_stiffness_desc",
+        "stiffX":               "stiff_x_desc",
+        "stiffY":               "stiff_y_desc",
+        "springDamping":        "spring_damping_desc",
+
+        // ---- 风力高级（新） ----
+        "windSpatialFreq":      "wind_spatial_freq_desc",
+        "windZ":                "wind_z_desc",
+
+        // ---- 重力与地面（新） ----
+        "gravityAngle":         "gravity_angle_desc",
+        "groundY":              "ground_y_desc",
+        "groundFriction":       "ground_friction_desc",
+
+        // ---- 其他高级（新） ----
+        "collisionFriction":    "collision_friction_desc",
+        "dragStrength":         "drag_strength_desc",
+        "airDampingExp":        "air_damping_exp_desc",
+        "maxVelocity":          "max_velocity_desc",
+        "velocityRetention":    "velocity_retention_desc",
+
+        // ---- 光影 ----
+        "lightIntensity":       "light_intensity_desc",
+        "lightColor":           "light_color_desc",
+        "roughness":            "roughness_desc",
+        "metalness":            "metalness_desc",
+        "opacity":              "opacity_desc",
+        "lightStyle":           "light_style_desc",
+        "toonSteps":            "toon_steps_desc",
+        "holoIntensity":        "fx_holo_intensity_desc",
+        "lightX":               "light_x_desc",
+        "lightY":               "light_y_desc",
+        "lightZ":               "light_z_desc",
+
+        // ---- 编辑与拖拽 ----
+        "dragRadius":           "grab_radius_desc",
+        "knifeRadius":          "knife_radius_desc",
+        "maxDragDistance":      "max_drag_dist_desc",
+        "tearThreshold":        "tear_threshold_desc",
+        "dragDepthSelect":      "drag_depth_desc",
+        "rotXSlider":           "cloth_rotate_x_desc",
+        "rotYSlider":           "cloth_rotate_y_desc",
+        "rotZSlider":           "cloth_rotate_z_desc",
+
+        // ---- 渲染特效 ----
+        "blurStrength":         "blur_strength_desc",
+        "thicknessSize":        "th_size_desc",
+        "thicknessColor":       "th_color_desc",
+        "outlineThick":         "out_thick_desc",
+        "outlineColor":         "out_color_desc",
+
+        // ---- 泼水 ----
+        "evapSpeed":            "evap_speed_desc",
+        "waterDropSize":        "water_drop_size_desc",
+        "waterDropDensity":     "water_drop_density_desc",
+        "waterNormalIntensity": "water_normal_intensity_desc",
+
+        // ---- 背景与相机 ----
+        "bgColor":              "bg_color_desc",
+        "bgScale":              "bg_scale_desc",
+        "bgX":                  "bg_x_desc",
+        "bgY":                  "bg_y_desc",
+        "zoom":                 "cam_zoom_desc",
+        "camX":                 "cam_left_desc",
+        "camY":                 "cam_up_desc",
+    };
+
+    document.querySelectorAll('.ctrl label').forEach(label => {
+        // 已有 tooltip 就跳过（防重复注入）
+        if (label.querySelector('.tooltip-wrap')) return;
+
+        // 找关联控件 ID：优先 for 属性，其次同 .ctrl 里第一个 input/select
+        let controlId = label.getAttribute('for');
+        if (!controlId) {
+            const ctrl = label.closest('.ctrl');
+            if (ctrl) {
+                const el = ctrl.querySelector('input[id], select[id]');
+                if (el) controlId = el.id;
+            }
+        }
+        if (!controlId) return;
+
+        const descKey = tooltipMap[controlId];
+        if (!descKey) return;
+
+        // 若 label 自身带 data-i18n，先把内容包成 span，避免后续语言切换覆盖掉 tooltip
+        if (label.hasAttribute('data-i18n')) {
+            const key = label.getAttribute('data-i18n');
+            label.removeAttribute('data-i18n');
+            const span = document.createElement('span');
+            span.setAttribute('data-i18n', key);
+            span.innerHTML = label.innerHTML;
+            label.innerHTML = '';
+            label.appendChild(span);
+        }
+
+        // 追加「?」提示按钮（复用全局 tooltip 系统）
+        const tip = document.createElement('span');
+        tip.className = 'tooltip-wrap';
+        tip.innerHTML = `<i class="fa-solid fa-circle-question"></i><span class="tooltip-text" data-i18n="${descKey}"></span>`;
+        label.appendChild(tip);
+    });
+
+    // 填充 tooltip 文本
+    if (window.updateLanguage) {
+        
+        window.updateLanguage(window.currentLang || 'zh');
+    }
+}
+
 function getPointerClient(e) {
     if (e.touches && e.touches.length) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
     if (e.changedTouches && e.changedTouches.length) return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
@@ -4303,9 +4703,9 @@ function updateDragTarget(e) {
             const targetY = newTarget.y + item.oy;
             const targetZ = newTarget.z + item.oz;
 
-            let dx = (targetX - p.x) * 0.4;
-            let dy = (targetY - p.y) * 0.4;
-            let dz = (targetZ - p.z) * 0.4;
+let dx = (targetX - p.x) * dragStrength;
+let dy = (targetY - p.y) * dragStrength;
+let dz = (targetZ - p.z) * dragStrength;
 
             const moveLen = Math.hypot(dx, dy, dz);
             const maxStep = 0.15;
@@ -5299,20 +5699,30 @@ class Cloth {
             }
         }
 
-        this.springs = [];
-        for (let j = 0; j <= resY; j++) {
-            for (let i = 0; i <= resX; i++) {
-                const idx = grid[j][i];
-                if (i + 1 <= resX) this.addSpring(idx, grid[j][i + 1]);
-                if (j + 1 <= resY) this.addSpring(idx, grid[j + 1][i]);
-            }
-        }
-        for (let j = 0; j < resY; j++) {
-            for (let i = 0; i < resX; i++) {
-                const a = grid[j][i], b = grid[j][i + 1], c = grid[j + 1][i], d = grid[j + 1][i + 1];
-                this.addSpring(a, d); this.addSpring(b, c);
-            }
-        }
+this.springs = [];
+this.bendSprings = []; // ← 新增：弯曲弹簧
+for (let j = 0; j <= resY; j++) {
+    for (let i = 0; i <= resX; i++) {
+        const idx = grid[j][i];
+        if (i + 1 <= resX) this.addSpring(idx, grid[j][i + 1], 'structural', 'h');
+        if (j + 1 <= resY) this.addSpring(idx, grid[j + 1][i], 'structural', 'v');
+    }
+}
+for (let j = 0; j < resY; j++) {
+    for (let i = 0; i < resX; i++) {
+        const a = grid[j][i], b = grid[j][i + 1], c = grid[j + 1][i], d = grid[j + 1][i + 1];
+        this.addSpring(a, d, 'shear', 'd');
+        this.addSpring(b, c, 'shear', 'd');
+    }
+}
+// 弯曲弹簧（隔一个格点的约束，只用于抗弯，不参与撕裂）
+for (let j = 0; j <= resY; j++) {
+    for (let i = 0; i <= resX; i++) {
+        const idx = grid[j][i];
+        if (i + 2 <= resX) this.addBendSpring(idx, grid[j][i + 2]);
+        if (j + 2 <= resY) this.addBendSpring(idx, grid[j + 2][i]);
+    }
+}
         if (hasUserPins) {
             for (const p of this.particles) {
                 for (const strokeObj of pinStrokes) {
@@ -5397,16 +5807,32 @@ class Cloth {
         this.collisionFrameCount = 0;
     }
 
-    addSpring(i, j) {
-        const p1 = this.particles[i], p2 = this.particles[j];
-        const sIdx = this.springs.length;
-        this.springs.push({ i, j, restLength: Math.hypot(p1.x - p2.x, p1.y - p2.y), broken: false });
+addSpring(i, j, type = 'structural', axis = 'd') {
+    const p1 = this.particles[i], p2 = this.particles[j];
+    const sIdx = this.springs.length;
+    const restLength = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+    this.springs.push({
+        i, j,
+        restLength,
+        originalRestLength: restLength, // ← 新增：塑性恢复基准
+        type, axis,                      // ← 新增：弹簧类别
+        broken: false
+    });
 
-        if (!p1.springs) p1.springs = [];
-        if (!p2.springs) p2.springs = [];
-        p1.springs.push(sIdx);
-        p2.springs.push(sIdx);
-    }
+    if (!p1.springs) p1.springs = [];
+    if (!p2.springs) p2.springs = [];
+    p1.springs.push(sIdx);
+    p2.springs.push(sIdx);
+}
+
+addBendSpring(i, j) {
+    const p1 = this.particles[i], p2 = this.particles[j];
+    this.bendSprings.push({
+        i, j,
+        restLength: Math.hypot(p1.x - p2.x, p1.y - p2.y),
+        broken: false
+    });
+}
 
     updateGeo() {
         const arr = this.geometry.attributes.position.array;
@@ -5537,7 +5963,7 @@ class Cloth {
                                 p2.x += nx * move2; p2.y += ny * move2; p2.z += nz * move2;
 
                                 // 🔧 同步历史位置，并加入阻尼（摩擦），减少由于碰撞产生的多余弹跳
-                                const damping = 0.6; 
+                                const damping = collisionFriction;
                                 p1.oldX -= nx * move1 * damping; p1.oldY -= ny * move1 * damping; p1.oldZ -= nz * move1 * damping;
                                 p2.oldX += nx * move2 * damping; p2.oldY += ny * move2 * damping; p2.oldZ += nz * move2 * damping;
                             }
@@ -5548,82 +5974,181 @@ class Cloth {
         }
     }
 
-        simulate(dt) {
-        const lockedIndices = new Set();
-        for (const item of draggedParticles) lockedIndices.add(item.index);
-        for (const data of multiTouchMap.values()) {
-            for (const item of data.dragged) lockedIndices.add(item.index);
-        }
-        const simMult = parseFloat(simMultSlider.value);
-        let wind = windEnabled ? parseFloat(windSlider.value) : 0;
-        const ang = parseFloat(windDirSlider.value) * Math.PI / 180;
-        const stiff = parseFloat(stiffnessSlider.value);
-        const dampCoeff = parseFloat(dampingSlider.value);
-        const baseMass = Math.max(0.1, parseFloat(massSlider.value));
-        const noiseAmp = parseFloat(windNoiseAmpSlider.value);
-        const noiseRandom = parseFloat(windRandomSlider.value);
-        const noiseSpeed = parseFloat(windSpeedSlider.value);
-        const t = performance.now() * 0.001;
-        const baseWindX = Math.cos(ang), baseWindY = Math.sin(ang);
-        const subDt = dt * simMult, dt2 = subDt * subDt;
-        const stretchLimit = parseFloat(maxStretchSlider.value);
-        const effectiveStiff = stiff * (1.5 / stretchLimit);
-        const maxDelta = 0.2;
+simulate(dt) {
+    const lockedIndices = new Set();
+    for (const item of draggedParticles) lockedIndices.add(item.index);
+    for (const data of multiTouchMap.values()) {
+        for (const item of data.dragged) lockedIndices.add(item.index);
+    }
 
-        // 💡 新增：提前计算所有粒子上挂载的装饰物重量，避免在循环里反复查找，大幅提升性能
-        // 💡 修复：将赋值改为累加，并加大力度
-        const decorGravityMap = new Float32Array(this.particles.length);
-        for (let d of decorations) {
-            if (d.particleIndex < this.particles.length) {
-                let extraG = 0;
-                if (d.weight === 'heavy') extraG = 2.5;   // 💡 从 0.95 加到 2.5，重物强拉扯
-                else if (d.weight === 'medium') extraG = 1.0; // 中物中等拉扯
-                else if (d.weight === 'light') extraG = -0.2; // 轻物甚至微飘
-                decorGravityMap[d.particleIndex] += extraG; // 💡 使用累加，防止多个装饰在同一个点覆盖
+    const simMult = parseFloat(simMultSlider.value);
+    let wind = windEnabled ? parseFloat(windSlider.value) : 0;
+    const ang = parseFloat(windDirSlider.value) * Math.PI / 180;
+    const stiff = parseFloat(stiffnessSlider.value);
+    const dampCoeff = parseFloat(dampingSlider.value);
+    const baseMass = Math.max(0.1, parseFloat(massSlider.value));
+    const noiseAmp = parseFloat(windNoiseAmpSlider.value);
+    const noiseRandom = parseFloat(windRandomSlider.value);
+    const noiseSpeed = parseFloat(windSpeedSlider.value);
+    const t = performance.now() * 0.001;
+    const baseWindX = Math.cos(ang), baseWindY = Math.sin(ang);
+    const subDt = dt * simMult, dt2 = subDt * subDt;
+    const stretchLimit = parseFloat(maxStretchSlider.value);
+    const effectiveStiff = stiff * (1.5 / stretchLimit);
+
+    // ===== 新增参数读取 =====
+    const gBase = parseFloat(gravitySlider.value); // 0~0.3，默认 0.1
+    const gravityAccel = gBase * 40;
+    const gAng = gravityAngle * Math.PI / 180;
+    const gravGX = Math.sin(gAng);
+    const gravGY = -Math.cos(gAng);
+
+    const spatialFreq = windSpatialFreq;
+    const windZComp = windZ;
+    const airExp = airDampingExp;
+    const velRet = velocityRetention;
+    const maxDelta = maxVelocity;
+
+    const shearK   = shearStiffness;
+    const stiffXK  = stiffX;
+    const stiffYK  = stiffY;
+    const bendK    = bendStiffness;
+    const springDamp = springDamping;
+
+    const plasticOn       = plasticityEnabled;
+    const plasticRate     = plasticityRate;
+    const plasticThreshold= plasticityThreshold;
+    const plasticRecovery = plasticityRecovery;
+    const plasticMax      = plasticityMax;
+
+    // 装饰重力映射（原样保留）
+    const decorGravityMap = new Float32Array(this.particles.length);
+    for (let d of decorations) {
+        if (d.particleIndex < this.particles.length) {
+            let extraG = 0;
+            if (d.weight === 'heavy') extraG = 2.5;
+            else if (d.weight === 'medium') extraG = 1.0;
+            else if (d.weight === 'light') extraG = -0.2;
+            decorGravityMap[d.particleIndex] += extraG;
+        }
+    }
+
+    // ================= 积分 =================
+    for (let i = 0; i < this.particles.length; i++) {
+        const p = this.particles[i];
+        if (p.pinned || lockedIndices.has(i)) continue;
+
+        const extraGravity = decorGravityMap[i];
+        const massRatio = baseMass / 25.0;
+        const retention = Math.max(0, 1.0 - dampCoeff * Math.pow(massRatio, airExp));
+        const windAccelBase = wind * 35 * Math.pow(massRatio, -0.5);
+
+        const vx = (p.x - p.oldX) * retention * velRet;
+        const vy = (p.y - p.oldY) * retention * velRet;
+        const vz = (p.z - p.oldZ) * retention * velRet;
+        p.oldX = p.x; p.oldY = p.y; p.oldZ = p.z;
+
+        const nx = p.x * spatialFreq + t * noiseSpeed;
+        const ny = p.y * spatialFreq + t * noiseSpeed * 1.2;
+        const nz = p.z * spatialFreq + t * noiseSpeed * 0.8;
+        const turbulenceX = Math.sin(nx) * Math.cos(ny) + Math.sin(nz * 1.3) * Math.cos(nx * 0.9);
+        const turbulenceY = Math.sin(ny) * Math.cos(nz) + Math.sin(nx * 1.1) * Math.cos(ny * 0.8);
+        const turbulenceZ = Math.sin(nz) * Math.cos(nx) + Math.sin(ny * 1.4) * Math.cos(nz * 1.1);
+
+        const windForceX = (baseWindX + turbulenceX * noiseRandom) * windAccelBase * noiseAmp;
+        const windForceY = (baseWindY + turbulenceY * noiseRandom) * windAccelBase * noiseAmp;
+        const windForceZ = (windZComp + turbulenceZ * noiseRandom) * windAccelBase * noiseAmp;
+
+        let dx = vx + windForceX * dt2;
+        let dy = vy + (windForceY + gravityAccel * gravGY - extraGravity) * dt2;
+        let dz = vz + windForceZ * dt2;
+        dx += gravityAccel * gravGX * dt2;
+
+        dx = Math.max(-maxDelta, Math.min(maxDelta, dx));
+        dy = Math.max(-maxDelta, Math.min(maxDelta, dy));
+        dz = Math.max(-maxDelta, Math.min(maxDelta, dz));
+        p.x += dx; p.y += dy; p.z += dz;
+
+        // 地面碰撞
+        if (groundCollisionEnabled && p.y < groundY) {
+            p.y = groundY;
+            const hvx = p.x - p.oldX;
+            const hvz = p.z - p.oldZ;
+            p.oldX = p.x - hvx * groundFriction;
+            p.oldZ = p.z - hvz * groundFriction;
+            p.oldY = p.y + (p.y - p.oldY) * 0.2;
+        }
+    }
+
+    // ================= 弹簧约束 + 塑性 =================
+    const iterations = parseInt(document.getElementById("constraintIterations").value);
+    for (let iter = 0; iter < iterations; iter++) {
+        for (const s of this.springs) {
+            if (s.broken) continue;
+            const p1 = this.particles[s.i], p2 = this.particles[s.j];
+            const dx = p2.x - p1.x, dy = p2.y - p1.y, dz = p2.z - p1.z;
+            const dist = Math.hypot(dx, dy, dz);
+            if (dist === 0) continue;
+            const w1 = (p1.pinned || lockedIndices.has(s.i)) ? 0 : p1.invMass;
+            const w2 = (p2.pinned || lockedIndices.has(s.j)) ? 0 : p2.invMass;
+            const wSum = w1 + w2;
+            if (wSum === 0) continue;
+
+            // 各向异性刚度
+            let stiffMul = 1.0;
+            if (s.type === 'shear') stiffMul = shearK;
+            else if (s.type === 'structural') {
+                if (s.axis === 'h') stiffMul = stiffXK;
+                else if (s.axis === 'v') stiffMul = stiffYK;
             }
+            const localStiff = effectiveStiff * stiffMul;
+
+            // ===== 塑性形变 =====
+            if (plasticOn) {
+                const strain = dist / s.restLength;
+                if (strain > plasticThreshold) {
+                    const excess = dist - s.restLength * plasticThreshold;
+                    s.restLength += excess * plasticRate;
+                    const cap = s.originalRestLength * plasticMax;
+                    if (s.restLength > cap) s.restLength = cap;
+                } else if (plasticRecovery > 0 && s.restLength > s.originalRestLength) {
+                    s.restLength -= (s.restLength - s.originalRestLength) * plasticRecovery;
+                }
+            }
+
+            const maxStretch = s.restLength * stretchLimit;
+            let diffX = 0, diffY = 0, diffZ = 0;
+            if (dist > maxStretch) {
+                const excess = dist - maxStretch;
+                const nx = dx / dist, ny = dy / dist, nz = dz / dist;
+                diffX = nx * excess; diffY = ny * excess; diffZ = nz * excess;
+            } else {
+                const diff = (dist - s.restLength) / dist * localStiff;
+                diffX = dx * diff; diffY = dy * diff; diffZ = dz * diff;
+            }
+
+            // 弹簧阻尼（抑制振荡）
+            if (springDamp > 0) {
+                const rvx = (p2.x - p2.oldX) - (p1.x - p1.oldX);
+                const rvy = (p2.y - p2.oldY) - (p1.y - p1.oldY);
+                const rvz = (p2.z - p2.oldZ) - (p1.z - p1.oldZ);
+                const rvDotN = (rvx * dx + rvy * dy + rvz * dz) / (dist * dist);
+                diffX += dx * rvDotN * springDamp;
+                diffY += dy * rvDotN * springDamp;
+                diffZ += dz * rvDotN * springDamp;
+            }
+
+            const mc = 0.2;
+            diffX = Math.max(-mc, Math.min(mc, diffX));
+            diffY = Math.max(-mc, Math.min(mc, diffY));
+            diffZ = Math.max(-mc, Math.min(mc, diffZ));
+            p1.x += diffX * (w1 / wSum); p1.y += diffY * (w1 / wSum); p1.z += diffZ * (w1 / wSum);
+            p2.x -= diffX * (w2 / wSum); p2.y -= diffY * (w2 / wSum); p2.z -= diffZ * (w2 / wSum);
         }
 
-        for (let i = 0; i < this.particles.length; i++) {
-            const p = this.particles[i];
-            if (p.pinned || lockedIndices.has(i)) continue;
-            
-            // 💡 获取该粒子上的装饰拉扯力
-            const extraGravity = decorGravityMap[i];
-
-            const gravityAccel = 0.1 * 40;
-            const massRatio = baseMass / 25.0;
-            const retention = Math.max(0, 1.0 - dampCoeff * Math.pow(massRatio, 0.2));
-            const windAccelBase = wind * 35 * Math.pow(massRatio, -0.5);
-            const vx = (p.x - p.oldX) * retention;
-            const vy = (p.y - p.oldY) * retention;
-            const vz = (p.z - p.oldZ) * retention;
-            p.oldX = p.x; p.oldY = p.y; p.oldZ = p.z;
-            const nx = p.x * 4.0 + t * noiseSpeed;
-            const ny = p.y * 4.0 + t * noiseSpeed * 1.2;
-            const nz = p.z * 4.0 + t * noiseSpeed * 0.8;
-            const turbulenceX = Math.sin(nx) * Math.cos(ny) + Math.sin(nz * 1.3) * Math.cos(nx * 0.9);
-            const turbulenceY = Math.sin(ny) * Math.cos(nz) + Math.sin(nx * 1.1) * Math.cos(ny * 0.8);
-            const turbulenceZ = Math.sin(nz) * Math.cos(nx) + Math.sin(ny * 1.4) * Math.cos(nz * 1.1);
-            const windForceX = (baseWindX + turbulenceX * noiseRandom) * windAccelBase * noiseAmp;
-            const windForceY = (baseWindY + turbulenceY * noiseRandom) * windAccelBase * noiseAmp;
-            const windForceZ = (turbulenceZ * noiseRandom) * windAccelBase * noiseAmp;
-            
-            let dx = vx + windForceX * dt2;
-            // 💡 将装饰的重力叠加到向下的受力中
-            let dy = vy + (windForceY - gravityAccel - extraGravity) * dt2; 
-            let dz = vz + windForceZ * dt2;
-            
-            dx = Math.max(-maxDelta, Math.min(maxDelta, dx));
-            dy = Math.max(-maxDelta, Math.min(maxDelta, dy));
-            dz = Math.max(-maxDelta, Math.min(maxDelta, dz));
-            p.x += dx; p.y += dy; p.z += dz;
-            const groundY = -1.5;
-            if (p.y < groundY) { p.y = groundY; p.oldY = p.y + (p.y - p.oldY) * 0.2; }
-        }
-
-        const iterations = parseInt(document.getElementById("constraintIterations").value);
-        for (let iter = 0; iter < iterations; iter++) {
-            for (const s of this.springs) {
+        // ===== 弯曲弹簧（不参与撕裂与塑性）=====
+        if (bendK > 0.001 && this.bendSprings.length) {
+            for (const s of this.bendSprings) {
                 if (s.broken) continue;
                 const p1 = this.particles[s.i], p2 = this.particles[s.j];
                 const dx = p2.x - p1.x, dy = p2.y - p1.y, dz = p2.z - p1.z;
@@ -5633,36 +6158,30 @@ class Cloth {
                 const w2 = (p2.pinned || lockedIndices.has(s.j)) ? 0 : p2.invMass;
                 const wSum = w1 + w2;
                 if (wSum === 0) continue;
-                const maxStretch = s.restLength * stretchLimit;
-                let diffX = 0, diffY = 0, diffZ = 0;
-                if (dist > maxStretch) {
-                    const excess = dist - maxStretch;
-                    const nx = dx / dist, ny = dy / dist, nz = dz / dist;
-                    diffX = nx * excess; diffY = ny * excess; diffZ = nz * excess;
-                } else {
-                    const diff = (dist - s.restLength) / dist * effectiveStiff;
-                    diffX = dx * diff; diffY = dy * diff; diffZ = dz * diff;
-                }
-                const maxCorrection = 0.2;
-                diffX = Math.max(-maxCorrection, Math.min(maxCorrection, diffX));
-                diffY = Math.max(-maxCorrection, Math.min(maxCorrection, diffY));
-                diffZ = Math.max(-maxCorrection, Math.min(maxCorrection, diffZ));
+                const diff = (dist - s.restLength) / dist * bendK * 0.5;
+                let diffX = dx * diff, diffY = dy * diff, diffZ = dz * diff;
+                const mc = 0.1;
+                diffX = Math.max(-mc, Math.min(mc, diffX));
+                diffY = Math.max(-mc, Math.min(mc, diffY));
+                diffZ = Math.max(-mc, Math.min(mc, diffZ));
                 p1.x += diffX * (w1 / wSum); p1.y += diffY * (w1 / wSum); p1.z += diffZ * (w1 / wSum);
                 p2.x -= diffX * (w2 / wSum); p2.y -= diffY * (w2 / wSum); p2.z -= diffZ * (w2 / wSum);
             }
         }
-
-        const collisionIters = parseInt(collisionItersSlider.value);
-        if (collisionEnabled) {
-            const iters = lockedIndices.size > 0 ? 1 : collisionIters;
-            for (let ci = 0; ci < iters; ci++) {
-                this.solveCollision(lockedIndices);
-            }
-        }
-
-        this.updateGeo();
-        if (outlineEnabled && outlineMesh) updateOutlineMesh();
     }
+
+    // ================= 自碰撞 =================
+    if (collisionEnabled) {
+        const collisionIters = parseInt(collisionItersSlider.value);
+        const iters = lockedIndices.size > 0 ? 1 : collisionIters;
+        for (let ci = 0; ci < iters; ci++) {
+            this.solveCollision(lockedIndices);
+        }
+    }
+
+    this.updateGeo();
+    if (outlineEnabled && outlineMesh) updateOutlineMesh();
+}
 }
 
 document.getElementById("genBtn").onclick = () => {
@@ -5855,6 +6374,27 @@ document.getElementById("resetBtn").onclick = () => {
     filterStrengthSlider.value = 0.3;
     currentFilterStrength = 0.3;
     filterStrengthValue.textContent = "0.30";
+    togglePlasticity.checked = false; plasticityEnabled = false;
+document.getElementById("plasticityRate").value = 0.05; plasticityRate = 0.05;
+document.getElementById("plasticityThreshold").value = 1.05; plasticityThreshold = 1.05;
+document.getElementById("plasticityRecovery").value = 0; plasticityRecovery = 0;
+document.getElementById("plasticityMax").value = 3.0; plasticityMax = 3.0;
+document.getElementById("bendStiffness").value = 0.1; bendStiffness = 0.1;
+document.getElementById("shearStiffness").value = 1.0; shearStiffness = 1.0;
+document.getElementById("stiffX").value = 1.0; stiffX = 1.0;
+document.getElementById("stiffY").value = 1.0; stiffY = 1.0;
+document.getElementById("springDamping").value = 0; springDamping = 0;
+document.getElementById("windSpatialFreq").value = 4; windSpatialFreq = 4;
+document.getElementById("windZ").value = 0; windZ = 0;
+document.getElementById("gravityAngle").value = 0; gravityAngle = 0;
+document.getElementById("toggleGround").checked = true; groundCollisionEnabled = true;
+document.getElementById("groundY").value = -1.5; groundY = -1.5;
+document.getElementById("groundFriction").value = 0.8; groundFriction = 0.8;
+document.getElementById("collisionFriction").value = 0.6; collisionFriction = 0.6;
+document.getElementById("dragStrength").value = 0.4; dragStrength = 0.4;
+document.getElementById("airDampingExp").value = 0.2; airDampingExp = 0.2;
+document.getElementById("maxVelocity").value = 0.2; maxVelocity = 0.2;
+document.getElementById("velocityRetention").value = 1.0; velocityRetention = 1.0;
     if (rotXSlider) { rotXSlider.value = 0; rotXValue.textContent = "0°"; prevRotX = 0; }
     if (rotZSlider) { rotZSlider.value = 0; rotZValue.textContent = "0°"; prevRotZ = 0; }
     if (resetRotBtn) resetRotBtn.click();
@@ -5867,6 +6407,9 @@ document.getElementById("resetBtn").onclick = () => {
     setEditMode(true);
     redrawPreview();
     updateCamera();
+    // 重置扩展物理参数为「棉」预设
+applyPresetToSliders(physicsPresets.cotton);
+physicsPresetSelect.value = "cotton";
 };
 
 function bindSlider(id, valueId, callback, format = (v) => parseFloat(v).toFixed(2)) {
@@ -5936,7 +6479,40 @@ bindSlider("waterNormalIntensity", "waterNormalIntensityValue", (v) => { waterNo
 bindSlider("collisionRadius", "collisionRadiusValue", () => { collisionPresetSelect.value = "custom"; }, (v) => parseFloat(v).toFixed(2));
 bindSlider("collisionForce", "collisionForceValue", () => { collisionPresetSelect.value = "custom"; }, (v) => parseFloat(v).toFixed(1));
 bindSlider("collisionIters", "collisionItersValue", () => { collisionPresetSelect.value = "custom"; }, (v) => parseInt(v));
+// 辅助：拖动即把预设归为自定义
+function bindPhysSlider(id, valId, setter, fmt) {
+    bindSlider(id, valId, (v) => {
+        setter(v);
+        if (physicsPresetSelect) physicsPresetSelect.value = "custom";
+    }, fmt);
+}
 
+bindPhysSlider("plasticityRate",      "plasticityRateValue",      v => plasticityRate = v);
+bindPhysSlider("plasticityThreshold", "plasticityThresholdValue", v => plasticityThreshold = v);
+bindPhysSlider("plasticityRecovery",  "plasticityRecoveryValue",  v => plasticityRecovery = v, v => parseFloat(v).toFixed(3));
+bindPhysSlider("plasticityMax",       "plasticityMaxValue",       v => plasticityMax = v, v => parseFloat(v).toFixed(1));
+bindPhysSlider("bendStiffness",       "bendStiffnessValue",       v => bendStiffness = v);
+bindPhysSlider("shearStiffness",      "shearStiffnessValue",      v => shearStiffness = v);
+bindPhysSlider("stiffX",              "stiffXValue",              v => stiffX = v);
+bindPhysSlider("stiffY",              "stiffYValue",              v => stiffY = v);
+bindPhysSlider("springDamping",       "springDampingValue",       v => springDamping = v);
+bindPhysSlider("windSpatialFreq",     "windSpatialFreqValue",     v => windSpatialFreq = v, v => parseFloat(v).toFixed(1));
+bindPhysSlider("windZ",               "windZValue",               v => windZ = v);
+bindPhysSlider("gravityAngle",        "gravityAngleValue",        v => gravityAngle = v, v => parseInt(v) + "°");
+bindPhysSlider("groundY",             "groundYValue",             v => groundY = v);
+bindPhysSlider("groundFriction",      "groundFrictionValue",      v => groundFriction = v);
+bindPhysSlider("collisionFriction",   "collisionFrictionValue",   v => collisionFriction = v);
+bindPhysSlider("dragStrength",        "dragStrengthValue",        v => dragStrength = v);
+bindPhysSlider("airDampingExp",       "airDampingExpValue",       v => airDampingExp = v);
+bindPhysSlider("maxVelocity",         "maxVelocityValue",         v => maxVelocity = v);
+bindPhysSlider("velocityRetention",   "velocityRetentionValue",   v => velocityRetention = v, v => parseFloat(v).toFixed(3));
+
+// 开关类
+bindToggle("togglePlasticity", (c) => { plasticityEnabled = c; physicsPresetSelect.value = "custom"; });
+bindToggle("toggleGround",     (c) => { groundCollisionEnabled = c; physicsPresetSelect.value = "custom"; });
+
+bindToggle("togglePlasticity", (checked) => plasticityEnabled = checked);
+bindToggle("toggleGround", (checked) => groundCollisionEnabled = checked);
 let filterDebounceTimer = null;
 if (filterStrengthSlider) {
     filterStrengthSlider.oninput = () => {
@@ -6148,6 +6724,26 @@ document.getElementById("collisionItersValue").textContent = parseInt(collisionI
 document.getElementById("windNoiseAmpValue").textContent = parseFloat(windNoiseAmpSlider.value).toFixed(2);
 document.getElementById("windRandomValue").textContent = parseFloat(windRandomSlider.value).toFixed(2);
 document.getElementById("windSpeedValue").textContent = parseFloat(windSpeedSlider.value).toFixed(2);
+// 新增参数初次显示
+document.getElementById("plasticityRateValue").textContent = "0.05";
+document.getElementById("plasticityThresholdValue").textContent = "1.05";
+document.getElementById("plasticityRecoveryValue").textContent = "0.000";
+document.getElementById("plasticityMaxValue").textContent = "3.0";
+document.getElementById("bendStiffnessValue").textContent = "0.10";
+document.getElementById("shearStiffnessValue").textContent = "1.00";
+document.getElementById("stiffXValue").textContent = "1.00";
+document.getElementById("stiffYValue").textContent = "1.00";
+document.getElementById("springDampingValue").textContent = "0.00";
+document.getElementById("windSpatialFreqValue").textContent = "4.0";
+document.getElementById("windZValue").textContent = "0.00";
+document.getElementById("gravityAngleValue").textContent = "0°";
+document.getElementById("groundYValue").textContent = "-1.50";
+document.getElementById("groundFrictionValue").textContent = "0.80";
+document.getElementById("collisionFrictionValue").textContent = "0.60";
+document.getElementById("dragStrengthValue").textContent = "0.40";
+document.getElementById("airDampingExpValue").textContent = "0.20";
+document.getElementById("maxVelocityValue").textContent = "0.20";
+document.getElementById("velocityRetentionValue").textContent = "1.000";
 
 windPresetSelect.value = "breeze";
 toggleWind.checked = windEnabled;
@@ -6166,31 +6762,79 @@ if (waterNormalIntensityValueEl) waterNormalIntensityValueEl.textContent = parse
     const globalTip = document.createElement('div');
     globalTip.id = 'global-tooltip';
     document.body.appendChild(globalTip);
+
+    let _currentWrap = null;
+
+    // 从 translations 实时读取当前语言文本，带 zh fallback
+    function getTooltipText(wrap) {
+        const textEl = wrap.querySelector('.tooltip-text');
+        if (!textEl) return null;
+
+        const key = textEl.getAttribute('data-i18n');
+        if (key && window.I18N) {
+            const lang = window.currentLang || 'zh';
+            // 语言回退链
+            const chain = lang === 'zh-TW' ? ['zh-TW', 'zh']
+                        : lang === 'zh' ? ['zh']
+                        : [lang, 'en', 'zh'];
+            for (const lc of chain) {
+                if (window.I18N[lc] && window.I18N[lc][key]) {
+                    return window.I18N[lc][key];
+                }
+            }
+        }
+        // 没 key 或全部缺失 → 回退到 innerHTML
+        return textEl.innerHTML;
+    }
+
     function positionTooltip(target) {
         const rect = target.getBoundingClientRect();
         globalTip.style.left = rect.left + rect.width / 2 + 'px';
         globalTip.style.top = rect.top - 10 + 'px';
     }
+
     function showTooltip(target) {
         const wrap = target.closest('.tooltip-wrap');
         if (!wrap) return;
-        const textEl = wrap.querySelector('.tooltip-text');
-        if (!textEl) return;
-        globalTip.innerHTML = textEl.innerHTML;
+        const text = getTooltipText(wrap);
+        if (text == null) return;
+        globalTip.innerHTML = text;
         positionTooltip(target);
         globalTip.classList.add('show');
+        _currentWrap = wrap;
     }
-    function hideTooltip() { globalTip.classList.remove('show'); }
-    document.body.addEventListener('mouseover', e => { if (e.target.closest('.tooltip-wrap')) showTooltip(e.target); });
-    document.body.addEventListener('mouseout', e => { if (e.target.closest('.tooltip-wrap')) hideTooltip(); });
+
+    function hideTooltip() {
+        globalTip.classList.remove('show');
+        _currentWrap = null;
+    }
+
+    // ★ 关键修复：语言切换时，如果 tooltip 正在显示，立即刷新内容
+    window.addEventListener('languageChanged', () => {
+        if (!_currentWrap) return;
+        const text = getTooltipText(_currentWrap);
+        if (text != null) globalTip.innerHTML = text;
+    });
+
+    document.body.addEventListener('mouseover', e => {
+        if (e.target.closest('.tooltip-wrap')) showTooltip(e.target);
+    });
+    document.body.addEventListener('mouseout', e => {
+        if (e.target.closest('.tooltip-wrap')) hideTooltip();
+    });
     document.body.addEventListener('touchstart', e => {
         if (e.target.closest('.tooltip-wrap')) {
-            e.preventDefault(); showTooltip(e.target);
+            e.preventDefault();
+            showTooltip(e.target);
             clearTimeout(window._tooltipTimer);
             window._tooltipTimer = setTimeout(hideTooltip, 2000);
-        } else { hideTooltip(); }
+        } else {
+            hideTooltip();
+        }
     }, { passive: false });
-    document.getElementById('ui').addEventListener('scroll', hideTooltip);
+
+    const uiEl = document.getElementById('ui');
+    if (uiEl) uiEl.addEventListener('scroll', hideTooltip);
     window.addEventListener('resize', hideTooltip);
 })();
 
@@ -6413,3 +7057,5 @@ if (resetRotBtn) {
         handleRotationChange();
     });
 }
+injectTooltips();
+if (window.bindLangSelect) window.bindLangSelect();

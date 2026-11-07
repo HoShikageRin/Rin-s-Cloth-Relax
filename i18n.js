@@ -134,7 +134,92 @@ const translations = {
         btn_decor: "放装饰", decor_title: "装饰类型", editing_decor: "✨ 正在编辑选中装饰", btn_delete_decor: "删除该装饰", decor_type: "更改类型", decor_size: "大小", decor_color: "颜色",
         decor_star: "⭐ 小星星", decor_heart: "💖 小爱心", decor_sphere: "🔴 小圆珠", decor_cloud: "☁️ 小云朵", decor_bow: "🎀 蝴蝶结", decor_flower: "🌼 小雏菊", decor_paw: "🐾 猫爪", decor_drop: "💧 小水滴", decor_cherry: "🍒 小樱桃", decor_moon: "🌙 小月亮", decor_crown: "👑 小皇冠", decor_button: "🔘 小纽扣", decor_custom_upload: "📦 上传的自定义模型",
         import_decor_model: "导入自定义装饰 (.glb)", decor_mat: "材质", mat_plastic: "哑光塑料", mat_jelly: "果冻透明", mat_metal: "金属高光", mat_plush: "毛绒质感", mat_holo: "镭射反光",
-        decor_weight: "重量", weight_light: "轻 (漂浮)", weight_medium: "中 (贴合)", weight_heavy: "重 (下坠)", decor_clear: "清空所有",follow_me: "🐱 关注我 💖", project_link: "项目地址",
+        decor_weight: "重量", weight_light: "轻 (漂浮)", weight_medium: "中 (贴合)", weight_heavy: "重 (下坠)", decor_clear: "清空所有",follow_me: "🐱 关注我 💖", project_link: "项目地址",plasticity_title: "塑性形变",
+plasticity_enable: "开启塑性 (永久形变)",
+plasticity_rate: "塑性强度 (每步形变量)",
+plasticity_threshold: "塑性阈值 (应变比)",
+plasticity_recovery: "塑性恢复速度",
+plasticity_max: "塑性形变上限 (×原长)",
+spring_advanced: "弹簧高级",
+bend_stiffness: "弯曲刚度",
+shear_stiffness: "剪切刚度倍率",
+stiff_x: "经向刚度 (X轴)",
+stiff_y: "纬向刚度 (Y轴)",
+spring_damping: "弹簧阻尼",
+wind_advanced: "风力高级",
+wind_spatial_freq: "风力空间频率",
+wind_z: "风力垂直分量 (Z)",
+gravity_advanced: "重力与地面",
+gravity_angle: "重力方向 (0°向下)",
+ground_enable: "地面碰撞",
+ground_y: "地面高度",
+ground_friction: "地面摩擦",
+misc_advanced: "其他高级",
+collision_friction: "碰撞摩擦",
+drag_strength: "拖拽力度",
+air_damping_exp: "空气阻力质量指数",
+max_velocity: "最大速度 (每步上限)",
+velocity_retention: "速度保持率",
+// ---- 补充 tooltip 描述 ----
+wind_strength_desc: "风力的大小。0 为无风，2.0 为狂风。",
+wind_dir_desc: "风向角度。0° 向右吹，90° 向上吹。",
+out_thick_desc: "描边的粗细，数值越大轮廓越明显。",
+out_color_desc: "描边线条的颜色。",
+fx_holo_intensity_desc: "镭射反光的强度，数值越高越炫。",
+pbr_tex_size_desc: "程序化纹理在布料表面的平铺密度。",
+pbr_normal_scale_desc: "法线贴图的效果强度，越高立体感越强。",
+pbr_noise_intensity_desc: "叠加噪波在法线上的混合比例。",
+pbr_noise_size_desc: "噪波纹理的平铺密度。",
+pbr_noise_style_desc: "选择噪波的类型风格。",
+bg_scale_desc: "背景图片的缩放比例。",
+bg_x_desc: "背景图片的水平偏移量。",
+bg_y_desc: "背景图片的垂直偏移量。",
+bg_color_desc: "画布的背景底色。",
+cam_zoom_desc: "相机缩放比例，数值越大越靠近。",
+cam_left_desc: "相机水平位置偏移。",
+cam_up_desc: "相机垂直位置偏移。",
+tex_filter_strength_desc: "滤镜效果的强烈程度。",
+tex_filter_desc: "在图片上叠加染色/纹理滤镜。",
+base_color_desc: "布料的基础底色。未开启贴图时可见。",
+mat_preset_desc: "快速应用一套预设的光影/质感参数。",
+preset_title_desc: "快速应用一套预设的物理参数。",
+decor_type_desc: "放置的装饰类型。",
+decor_mat_desc: "装饰的材质质感。",
+decor_weight_desc: "装饰的重量。影响布料下坠与贴合程度。",
+decor_size_desc: "装饰的大小。",
+decor_color_desc: "装饰的颜色。",
+cloth_rotate_x_desc: "绕水平轴翻转。模拟布料前后翻滚。",
+cloth_rotate_y_desc: "绕竖直轴扭转。模拟布料左右翻面。",
+cloth_rotate_z_desc: "在屏幕平面内旋转。",
+light_color_desc: "主光源的颜色。",
+light_x_desc: "主光源在 X 轴（左右）的位置。",
+light_y_desc: "主光源在 Y 轴（上下）的位置。",
+light_z_desc: "主光源在 Z 轴（前后）的位置。",
+
+// ---- 塑性形变 ----
+plasticity_rate_desc: "每一步物理迭代把多余应变转化为永久形变的比例。",
+plasticity_threshold_desc: "当弹簧被拉伸超过这个比例开始产生永久形变。1.05 = 超过 5% 即形变。",
+plasticity_recovery_desc: "塑性形变缓慢恢复为原始长度的速度。设为 0 则永久保留。",
+plasticity_max_desc: "弹簧塑性形变的上限。超过这个倍数不再继续变形。",
+// ---- 弹簧高级 ----
+bend_stiffness_desc: "抵抗弯曲的能力。越高越不容易起褶皱。",
+shear_stiffness_desc: "对角线方向（剪切）约束的刚度倍率。",
+stiff_x_desc: "横向（经向）弹簧刚度倍率。大于 1 = 更硬。",
+stiff_y_desc: "纵向（纬向）弹簧刚度倍率。大于 1 = 更硬。",
+spring_damping_desc: "弹簧阻尼。抑制弹簧来回震荡。",
+// ---- 风力高级 ----
+wind_spatial_freq_desc: "风力噪波的空间频率。越高越细碎。",
+wind_z_desc: "风力的 Z 轴分量。正值把布料推向屏幕外。",
+// ---- 重力与地面 ----
+gravity_angle_desc: "重力方向。0° 垂直向下，90° 向右。",
+ground_y_desc: "地面的高度位置。",
+ground_friction_desc: "布料接触地面时的摩擦力。越高越难滑动。",
+// ---- 其他高级 ----
+collision_friction_desc: "布料自碰撞时的摩擦。越高越不容易穿模。",
+drag_strength_desc: "拖拽布料时向目标点移动的速度比例。",
+air_damping_exp_desc: "空气阻力与质量的指数关系。越大质量影响越大。",
+max_velocity_desc: "每个物理步的最大位移。防止数值爆炸。",
+velocity_retention_desc: "速度保持率。1.0 为完全保留速度。",
     },
     
     'zh-TW': {}, // 下方会自动补全
@@ -271,7 +356,85 @@ const translations = {
         btn_decor: "Place Decor", decor_title: "Decor Type", editing_decor: "✨ Editing Selected Decor", btn_delete_decor: "Delete Decor", decor_type: "Change Type", decor_size: "Size", decor_color: "Color",
         decor_star: "⭐ Star", decor_heart: "💖 Heart", decor_sphere: "🔴 Bead", decor_cloud: "☁️ Cloud", decor_bow: "🎀 Bow", decor_flower: "🌼 Daisy", decor_paw: "🐾 Paw", decor_drop: "💧 Drop", decor_cherry: "🍒 Cherry", decor_moon: "🌙 Moon", decor_crown: "👑 Crown", decor_button: "🔘 Button", decor_custom_upload: "📦 Custom Model",
         import_decor_model: "Import Custom Decor (.glb)", decor_mat: "Material", mat_plastic: "Matte Plastic", mat_jelly: "Jelly", mat_metal: "Metal", mat_plush: "Plush", mat_holo: "Holographic",
-        decor_weight: "Weight", weight_light: "Light", weight_medium: "Medium", weight_heavy: "Heavy", decor_clear: "Clear All",follow_me: "🐱 Follow Me 💖",        project_link: "Project Repo",
+        decor_weight: "Weight", weight_light: "Light", weight_medium: "Medium", weight_heavy: "Heavy", decor_clear: "Clear All",follow_me: "🐱 Follow Me 💖",        project_link: "Project Repo",plasticity_title: "Plasticity",
+plasticity_enable: "Enable Plasticity (Permanent Deform)",
+plasticity_rate: "Plasticity Rate (per step)",
+plasticity_threshold: "Plasticity Threshold (strain)",
+plasticity_recovery: "Plasticity Recovery Speed",
+plasticity_max: "Max Plastic Deformation (×restLen)",
+spring_advanced: "Advanced Spring",
+bend_stiffness: "Bending Stiffness",
+shear_stiffness: "Shear Stiffness Multiplier",
+stiff_x: "Warp Stiffness (X-axis)",
+stiff_y: "Weft Stiffness (Y-axis)",
+spring_damping: "Spring Damping",
+wind_advanced: "Advanced Wind",
+wind_spatial_freq: "Wind Spatial Frequency",
+wind_z: "Wind Vertical (Z)",
+gravity_advanced: "Gravity & Ground",
+gravity_angle: "Gravity Direction (0° down)",
+ground_enable: "Ground Collision",
+ground_y: "Ground Height",
+ground_friction: "Ground Friction",
+misc_advanced: "Other Advanced",
+collision_friction: "Collision Friction",
+drag_strength: "Drag Strength",
+air_damping_exp: "Air Damping Mass Exponent",
+max_velocity: "Max Velocity (per step)",
+velocity_retention: "Velocity Retention",
+wind_strength_desc: "Wind strength. 0 = calm, 2.0 = gale.",
+wind_dir_desc: "Wind angle. 0° = right, 90° = up.",
+out_thick_desc: "Outline thickness.",
+out_color_desc: "Outline color.",
+fx_holo_intensity_desc: "Holographic reflection intensity.",
+pbr_tex_size_desc: "Tiling density of procedural texture.",
+pbr_normal_scale_desc: "Normal map strength.",
+pbr_noise_intensity_desc: "Blend ratio of noise over base normal.",
+pbr_noise_size_desc: "Noise texture tiling density.",
+pbr_noise_style_desc: "Choose a noise style.",
+bg_scale_desc: "Background image scale.",
+bg_x_desc: "Background horizontal offset.",
+bg_y_desc: "Background vertical offset.",
+bg_color_desc: "Canvas background color.",
+cam_zoom_desc: "Camera zoom level.",
+cam_left_desc: "Camera horizontal offset.",
+cam_up_desc: "Camera vertical offset.",
+tex_filter_strength_desc: "Filter strength.",
+tex_filter_desc: "Overlay dye/texture effect on your image.",
+base_color_desc: "Base color (visible when texture is off).",
+mat_preset_desc: "Quickly apply a material preset.",
+preset_title_desc: "Quickly apply a physics preset.",
+decor_type_desc: "Decor type.",
+decor_mat_desc: "Decor material.",
+decor_weight_desc: "Decor weight, affects cloth droop.",
+decor_size_desc: "Decor size.",
+decor_color_desc: "Decor color.",
+cloth_rotate_x_desc: "Rotate around horizontal axis.",
+cloth_rotate_y_desc: "Rotate around vertical axis.",
+cloth_rotate_z_desc: "Rotate in screen plane.",
+light_color_desc: "Main light color.",
+light_x_desc: "Main light X position.",
+light_y_desc: "Main light Y position.",
+light_z_desc: "Main light Z position.",
+plasticity_rate_desc: "Percent of excess strain converted to permanent deformation per step.",
+plasticity_threshold_desc: "Strain threshold above which permanent deformation starts. 1.05 = 5% stretch.",
+plasticity_recovery_desc: "Speed at which plasticity recovers to original length. 0 = permanent.",
+plasticity_max_desc: "Max plastic deformation multiplier.",
+bend_stiffness_desc: "Resistance to bending.",
+shear_stiffness_desc: "Shear spring stiffness multiplier.",
+stiff_x_desc: "Warp (X) spring stiffness multiplier.",
+stiff_y_desc: "Weft (Y) spring stiffness multiplier.",
+spring_damping_desc: "Spring damping.",
+wind_spatial_freq_desc: "Wind noise spatial frequency.",
+wind_z_desc: "Wind Z component. Positive pushes cloth out of screen.",
+gravity_angle_desc: "Gravity direction. 0° = down, 90° = right.",
+ground_y_desc: "Ground height.",
+ground_friction_desc: "Friction with ground.",
+collision_friction_desc: "Friction during self-collision.",
+drag_strength_desc: "Drag follow strength.",
+air_damping_exp_desc: "Mass exponent for air damping.",
+max_velocity_desc: "Max displacement per physics step.",
+velocity_retention_desc: "Velocity retention. 1.0 = full retention.",
     },
 
     ja: {
@@ -406,7 +569,66 @@ const translations = {
         btn_decor: "装飾を置く", decor_title: "装飾タイプ", editing_decor: "✨ 選択中の装飾を編集", btn_delete_decor: "装飾を削除", decor_type: "タイプ変更", decor_size: "サイズ", decor_color: "色",
         decor_star: "⭐ 星", decor_heart: "💖 ハート", decor_sphere: "🔴 ビーズ", decor_cloud: "☁️ 雲", decor_bow: "🎀 リボン", decor_flower: "🌼 デイジー", decor_paw: "🐾 肉球", decor_drop: "💧 しずく", decor_cherry: "🍒 さくらんぼ", decor_moon: "🌙 月", decor_crown: "👑 王冠", decor_button: "🔘 ボタン", decor_custom_upload: "📦 カスタムモデル",
         import_decor_model: "カスタム装飾をインポート (.glb)", decor_mat: "マテリアル", mat_plastic: "マットプラスチック", mat_jelly: "ゼリー", mat_metal: "メタル", mat_plush: "プラッシュ", mat_holo: "ホログラム",
-        decor_weight: "重さ", weight_light: "軽い", weight_medium: "中", weight_heavy: "重い", decor_clear: "すべてクリア",follow_me: "🐱 フォローしてね 💖", project_link: "プロジェクトURL",
+        decor_weight: "重さ", weight_light: "軽い", weight_medium: "中", weight_heavy: "重い", decor_clear: "すべてクリア",follow_me: "🐱 フォローしてね 💖", project_link: "プロジェクトURL",        // ---- Tooltip 描述 ----
+        wind_strength_desc: "風の強さ。0 で無風、2.0 で大風。",
+        wind_dir_desc: "風向角度。0° は右、90° は上方向。",
+        out_thick_desc: "アウトラインの太さ。",
+        out_color_desc: "アウトラインの色。",
+        fx_holo_intensity_desc: "ホログラム反射の強さ。",
+        pbr_tex_size_desc: "プロシージャルテクスチャのタイル密度。",
+        pbr_normal_scale_desc: "法線マップの強さ。",
+        pbr_noise_intensity_desc: "ベース法線へのノイズの混合比率。",
+        pbr_noise_size_desc: "ノイズテクスチャのタイル密度。",
+        pbr_noise_style_desc: "ノイズのスタイルを選択。",
+        bg_scale_desc: "背景画像の拡大率。",
+        bg_x_desc: "背景の水平オフセット。",
+        bg_y_desc: "背景の垂直オフセット。",
+        bg_color_desc: "キャンバスの背景色。",
+        cam_zoom_desc: "カメラのズーム倍率。",
+        cam_left_desc: "カメラの水平位置。",
+        cam_up_desc: "カメラの垂直位置。",
+        tex_filter_strength_desc: "フィルター効果の強さ。",
+        tex_filter_desc: "画像に染色／テクスチャ効果を重ねます。",
+        base_color_desc: "布の基本色（テクスチャOFF時に表示）。",
+        mat_preset_desc: "マテリアルプリセットを適用。",
+        preset_title_desc: "物理プリセットを適用。",
+        decor_type_desc: "装飾のタイプ。",
+        decor_mat_desc: "装飾のマテリアル。",
+        decor_weight_desc: "装飾の重さ。布の垂れ具合に影響。",
+        decor_size_desc: "装飾のサイズ。",
+        decor_color_desc: "装飾の色。",
+        cloth_rotate_x_desc: "水平軸回転。布の前後回転をシミュレート。",
+        cloth_rotate_y_desc: "垂直軸回転。布の左右反転をシミュレート。",
+        cloth_rotate_z_desc: "画面平面内での回転。",
+        light_color_desc: "メインライトの色。",
+        light_x_desc: "メインライトの X 位置。",
+        light_y_desc: "メインライトの Y 位置。",
+        light_z_desc: "メインライトの Z 位置。",
+
+        // 塑性形変
+        plasticity_rate_desc: "1 ステップごとに余剰ひずみを永久変形に変換する割合。",
+        plasticity_threshold_desc: "永久変形が始まるひずみの閾値。1.05 = 5% 伸びで変形。",
+        plasticity_recovery_desc: "塑性変形が元の長さに戻る速度。0 で永久保持。",
+        plasticity_max_desc: "塑性変形の上限倍率。",
+        // スプリング上級
+        bend_stiffness_desc: "曲げに対する抵抗。高いほどシワになりにくい。",
+        shear_stiffness_desc: "せん断（対角）スプリングの剛性倍率。",
+        stiff_x_desc: "横方向（経）スプリング剛性倍率。1 より大きいと硬い。",
+        stiff_y_desc: "縦方向（緯）スプリング剛性倍率。1 より大きいと硬い。",
+        spring_damping_desc: "スプリングダンピング。振動を抑制。",
+        // 風力上級
+        wind_spatial_freq_desc: "風ノイズの空間周波数。高いほど細かい。",
+        wind_z_desc: "風の Z 軸成分。正の値で画面外へ押す。",
+        // 重力と地面
+        gravity_angle_desc: "重力方向。0° で真下、90° で右。",
+        ground_y_desc: "地面の高さ。",
+        ground_friction_desc: "地面との摩擦。高いほど滑りにくい。",
+        // その他
+        collision_friction_desc: "自己衝突時の摩擦。高いほどめり込みにくい。",
+        drag_strength_desc: "ドラッグ時に目標点へ移動する強さ。",
+        air_damping_exp_desc: "空気抵抗と質量の指数関係。",
+        max_velocity_desc: "物理 1 ステップの最大移動量。",
+        velocity_retention_desc: "速度保持率。1.0 で完全保持。",
     },
 
     ko: {
@@ -541,7 +763,66 @@ const translations = {
         btn_decor: "장식 놓기", decor_title: "장식 유형", editing_decor: "✨ 선택한 장식 편집 중", btn_delete_decor: "장식 삭제", decor_type: "유형 변경", decor_size: "크기", decor_color: "색상",
         decor_star: "⭐ 별", decor_heart: "💖 하트", decor_sphere: "🔴 구슬", decor_cloud: "☁️ 구름", decor_bow: "🎀 리본", decor_flower: "🌼 데이지", decor_paw: "🐾 발바닥", decor_drop: "💧 물방울", decor_cherry: "🍒 체리", decor_moon: "🌙 달", decor_crown: "👑 왕관", decor_button: "🔘 단추", decor_custom_upload: "📦 사용자 정의 모델",
         import_decor_model: "사용자 정의 장식 가져오기 (.glb)", decor_mat: "재질", mat_plastic: "무광 플라스틱", mat_jelly: "젤리", mat_metal: "메탈", mat_plush: "플러시", mat_holo: "홀로그램",
-        decor_weight: "무게", weight_light: "가벼움", weight_medium: "보통", weight_heavy: "무거움", decor_clear: "모두 지우기",follow_me: "🐱 팔로우 미 💖", project_link: "프로젝트 주소",
+        decor_weight: "무게", weight_light: "가벼움", weight_medium: "보통", weight_heavy: "무거움", decor_clear: "모두 지우기",follow_me: "🐱 팔로우 미 💖", project_link: "프로젝트 주소",        // ---- Tooltip 설명 ----
+        wind_strength_desc: "바람의 세기. 0 = 무풍, 2.0 = 강풍.",
+        wind_dir_desc: "바람 방향 각도. 0° = 오른쪽, 90° = 위쪽.",
+        out_thick_desc: "외곽선 두께.",
+        out_color_desc: "외곽선 색상.",
+        fx_holo_intensity_desc: "홀로그램 반사 강도.",
+        pbr_tex_size_desc: "절차적 텍스처의 타일 밀도.",
+        pbr_normal_scale_desc: "노멀 맵 강도.",
+        pbr_noise_intensity_desc: "기본 노멀 위 노이즈 혼합 비율.",
+        pbr_noise_size_desc: "노이즈 텍스처 타일 밀도.",
+        pbr_noise_style_desc: "노이즈 스타일 선택.",
+        bg_scale_desc: "배경 이미지 확대/축소 비율.",
+        bg_x_desc: "배경 수평 오프셋.",
+        bg_y_desc: "배경 수직 오프셋.",
+        bg_color_desc: "캔버스 배경색.",
+        cam_zoom_desc: "카메라 줌 배율.",
+        cam_left_desc: "카메라 수평 위치.",
+        cam_up_desc: "카메라 수직 위치.",
+        tex_filter_strength_desc: "필터 효과 강도.",
+        tex_filter_desc: "이미지에 염색/텍스처 효과를 덧입힙니다.",
+        base_color_desc: "천의 기본색 (텍스처 OFF 시 표시).",
+        mat_preset_desc: "재질 프리셋을 적용.",
+        preset_title_desc: "물리 프리셋을 적용.",
+        decor_type_desc: "장식 유형.",
+        decor_mat_desc: "장식 재질.",
+        decor_weight_desc: "장식 무게. 천의 처짐에 영향.",
+        decor_size_desc: "장식 크기.",
+        decor_color_desc: "장식 색상.",
+        cloth_rotate_x_desc: "수평 축 회전. 천의 앞뒤 회전을 시뮬레이션.",
+        cloth_rotate_y_desc: "수직 축 회전. 천의 좌우 반전을 시뮬레이션.",
+        cloth_rotate_z_desc: "화면 평면 내 회전.",
+        light_color_desc: "메인 광원 색상.",
+        light_x_desc: "메인 광원 X 위치.",
+        light_y_desc: "메인 광원 Y 위치.",
+        light_z_desc: "메인 광원 Z 위치.",
+
+        // 소성 변형
+        plasticity_rate_desc: "스텝마다 초과 변형률을 영구 변형으로 변환하는 비율.",
+        plasticity_threshold_desc: "영구 변형이 시작되는 변형률 임계값. 1.05 = 5% 늘어남.",
+        plasticity_recovery_desc: "소성 변형이 원래 길이로 복구되는 속도. 0 = 영구 유지.",
+        plasticity_max_desc: "소성 변형 상한 배율.",
+        // 스프링 고급
+        bend_stiffness_desc: "굽힘 저항. 높을수록 주름이 적음.",
+        shear_stiffness_desc: "대각선(전단) 스프링 강성 배율.",
+        stiff_x_desc: "가로(경) 스프링 강성 배율. 1 초과 = 단단함.",
+        stiff_y_desc: "세로(위) 스프링 강성 배율. 1 초과 = 단단함.",
+        spring_damping_desc: "스프링 감쇠. 진동 억제.",
+        // 바람 고급
+        wind_spatial_freq_desc: "바람 노이즈 공간 주파수. 높을수록 잘게.",
+        wind_z_desc: "바람 Z축 성분. 양수면 화면 밖으로 밀어냄.",
+        // 중력과 지면
+        gravity_angle_desc: "중력 방향. 0° = 수직 아래, 90° = 오른쪽.",
+        ground_y_desc: "지면 높이.",
+        ground_friction_desc: "지면 마찰. 높을수록 미끄러지지 않음.",
+        // 기타 고급
+        collision_friction_desc: "자체 충돌 마찰. 높을수록 겹침이 적음.",
+        drag_strength_desc: "드래그 시 목표점으로 이동하는 강도.",
+        air_damping_exp_desc: "공기 저항과 질량의 지수 관계.",
+        max_velocity_desc: "물리 스텝당 최대 이동량.",
+        velocity_retention_desc: "속도 유지율. 1.0 = 완전 유지.",
     }
 };
 
@@ -567,26 +848,59 @@ window.I18N = translations;
 
 window.updateLanguage = function(lang) {
     window.currentLang = lang;
-    
-    // 动态切换 html lang 属性，方便 CSS 针对长单词/日韩文做适配
     document.documentElement.lang = lang;
 
+    // 语言回退链
+    const fallbackChain = lang === 'zh-TW' ? ['zh-TW', 'zh']
+                        : lang === 'zh' ? ['zh']
+                        : [lang, 'en', 'zh'];
+
+    let count = 0;
     document.querySelectorAll('[data-i18n]').forEach(el => {
         const key = el.getAttribute('data-i18n');
-        if (translations[lang] && translations[lang][key]) {
-            el.innerHTML = translations[lang][key];
+        let text = null;
+        for (const lc of fallbackChain) {
+            if (translations[lc] && translations[lc][key]) {
+                text = translations[lc][key];
+                break;
+            }
+        }
+        if (text !== null) {
+            el.innerHTML = text;
+            count++;
         }
     });
     
+    console.log(`[i18n] 已切换到 ${lang}，更新了 ${count} 个元素`);
     window.dispatchEvent(new Event('languageChanged'));
 };
 
-document.addEventListener('DOMContentLoaded', () => {
+// 强制绑定下拉框事件（挂载到 window 上，供全局调用）
+window.bindLangSelect = function() {
     const langSelect = document.getElementById('langSelect');
-    if (langSelect) {
-        langSelect.value = window.currentLang;
-        langSelect.addEventListener('change', (e) => {
-            window.updateLanguage(e.target.value);
-        });
+    if (!langSelect) {
+        console.warn('[i18n] 找不到 langSelect 元素');
+        return;
     }
-});
+    if (langSelect.dataset.i18nBound === '1') return;
+    langSelect.dataset.i18nBound = '1';
+
+    langSelect.value = window.currentLang;
+    
+    // 使用 onchange 而不是 addEventListener，防止被多次绑定覆盖
+    langSelect.onchange = (e) => {
+        const targetLang = e.target.value;
+        console.log('[i18n] 手动切换语言 ->', targetLang);
+        window.updateLanguage(targetLang);
+    };
+    console.log('[i18n] 语言下拉框绑定成功');
+};
+
+// 确保 DOM 加载完毕后立刻绑定
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', window.bindLangSelect);
+} else {
+    window.bindLangSelect();
+}
+// 兜底：页面完全加载后再尝试一次
+window.addEventListener('load', window.bindLangSelect);

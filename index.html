@@ -529,7 +529,127 @@
           <span id="windSpeedValue">1.60</span>
           <input id="windSpeed" type="range" min="0.2" max="4.0" step="0.05" value="1.60">
         </div>
+        <!-- ========== 塑性形变 ========== -->
+<div class="ctrl-title"><i class="fa-solid fa-fill-drip"></i> <span data-i18n="plasticity_title">塑性形变</span></div>
+<div class="toggle-group" style="margin-bottom: 10px; padding: 8px 12px;">
+  <div class="toggle-item">
+    <span class="toggle-label"><span data-i18n="plasticity_enable">开启塑性 (永久形变)</span></span>
+    <label class="toggle-switch"><input type="checkbox" id="togglePlasticity"><span class="slider"></span></label>
+  </div>
+</div>
+<div class="ctrl">
+  <label for="plasticityRate" data-i18n="plasticity_rate">塑性强度 (每步形变量)</label>
+  <span id="plasticityRateValue">0.05</span>
+  <input id="plasticityRate" type="range" min="0" max="0.5" step="0.01" value="0.05">
+</div>
+<div class="ctrl">
+  <label for="plasticityThreshold" data-i18n="plasticity_threshold">塑性阈值 (应变比)</label>
+  <span id="plasticityThresholdValue">1.05</span>
+  <input id="plasticityThreshold" type="range" min="1.0" max="2.0" step="0.01" value="1.05">
+</div>
+<div class="ctrl">
+  <label for="plasticityRecovery" data-i18n="plasticity_recovery">塑性恢复速度</label>
+  <span id="plasticityRecoveryValue">0.000</span>
+  <input id="plasticityRecovery" type="range" min="0" max="0.05" step="0.001" value="0">
+</div>
+<div class="ctrl">
+  <label for="plasticityMax" data-i18n="plasticity_max">塑性形变上限 (×原长)</label>
+  <span id="plasticityMaxValue">3.0</span>
+  <input id="plasticityMax" type="range" min="1.0" max="10.0" step="0.1" value="3.0">
+</div>
 
+<!-- ========== 弹簧高级参数 ========== -->
+<div class="ctrl-title"><i class="fa-solid fa-layer-group"></i> <span data-i18n="spring_advanced">弹簧高级</span></div>
+<div class="ctrl">
+  <label for="bendStiffness" data-i18n="bend_stiffness">弯曲刚度</label>
+  <span id="bendStiffnessValue">0.10</span>
+  <input id="bendStiffness" type="range" min="0" max="1.0" step="0.01" value="0.1">
+</div>
+<div class="ctrl">
+  <label for="shearStiffness" data-i18n="shear_stiffness">剪切刚度倍率</label>
+  <span id="shearStiffnessValue">1.00</span>
+  <input id="shearStiffness" type="range" min="0" max="3.0" step="0.05" value="1.0">
+</div>
+<div class="ctrl">
+  <label for="stiffX" data-i18n="stiff_x">经向刚度 (X轴)</label>
+  <span id="stiffXValue">1.00</span>
+  <input id="stiffX" type="range" min="0.1" max="3.0" step="0.05" value="1.0">
+</div>
+<div class="ctrl">
+  <label for="stiffY" data-i18n="stiff_y">纬向刚度 (Y轴)</label>
+  <span id="stiffYValue">1.00</span>
+  <input id="stiffY" type="range" min="0.1" max="3.0" step="0.05" value="1.0">
+</div>
+<div class="ctrl">
+  <label for="springDamping" data-i18n="spring_damping">弹簧阻尼</label>
+  <span id="springDampingValue">0.00</span>
+  <input id="springDamping" type="range" min="0" max="0.5" step="0.01" value="0">
+</div>
+
+<!-- ========== 风力高级 ========== -->
+<div class="ctrl-title"><i class="fa-solid fa-wind"></i> <span data-i18n="wind_advanced">风力高级</span></div>
+<div class="ctrl">
+  <label for="windSpatialFreq" data-i18n="wind_spatial_freq">风力空间频率</label>
+  <span id="windSpatialFreqValue">4.0</span>
+  <input id="windSpatialFreq" type="range" min="0.5" max="20" step="0.5" value="4.0">
+</div>
+<div class="ctrl">
+  <label for="windZ" data-i18n="wind_z">风力垂直分量 (Z)</label>
+  <span id="windZValue">0.00</span>
+  <input id="windZ" type="range" min="-1" max="1" step="0.05" value="0">
+</div>
+
+<!-- ========== 重力与地面 ========== -->
+<div class="ctrl-title"><i class="fa-solid fa-arrow-down"></i> <span data-i18n="gravity_advanced">重力与地面</span></div>
+<div class="ctrl">
+  <label for="gravityAngle" data-i18n="gravity_angle">重力方向 (0°向下)</label>
+  <span id="gravityAngleValue">0°</span>
+  <input id="gravityAngle" type="range" min="-180" max="180" step="1" value="0">
+</div>
+<div class="toggle-group" style="margin-bottom: 10px; padding: 8px 12px;">
+  <div class="toggle-item">
+    <span class="toggle-label"><span data-i18n="ground_enable">地面碰撞</span></span>
+    <label class="toggle-switch"><input type="checkbox" id="toggleGround" checked><span class="slider"></span></label>
+  </div>
+</div>
+<div class="ctrl">
+  <label for="groundY" data-i18n="ground_y">地面高度</label>
+  <span id="groundYValue">-1.50</span>
+  <input id="groundY" type="range" min="-3" max="1" step="0.05" value="-1.5">
+</div>
+<div class="ctrl">
+  <label for="groundFriction" data-i18n="ground_friction">地面摩擦</label>
+  <span id="groundFrictionValue">0.80</span>
+  <input id="groundFriction" type="range" min="0" max="1" step="0.05" value="0.8">
+</div>
+
+<!-- ========== 其他高级 ========== -->
+<div class="ctrl-title"><i class="fa-solid fa-gauge"></i> <span data-i18n="misc_advanced">其他高级</span></div>
+<div class="ctrl">
+  <label for="collisionFriction" data-i18n="collision_friction">碰撞摩擦</label>
+  <span id="collisionFrictionValue">0.60</span>
+  <input id="collisionFriction" type="range" min="0" max="1" step="0.05" value="0.6">
+</div>
+<div class="ctrl">
+  <label for="dragStrength" data-i18n="drag_strength">拖拽力度</label>
+  <span id="dragStrengthValue">0.40</span>
+  <input id="dragStrength" type="range" min="0.05" max="1.0" step="0.05" value="0.4">
+</div>
+<div class="ctrl">
+  <label for="airDampingExp" data-i18n="air_damping_exp">空气阻力质量指数</label>
+  <span id="airDampingExpValue">0.20</span>
+  <input id="airDampingExp" type="range" min="0" max="1" step="0.01" value="0.2">
+</div>
+<div class="ctrl">
+  <label for="maxVelocity" data-i18n="max_velocity">最大速度 (每步上限)</label>
+  <span id="maxVelocityValue">0.20</span>
+  <input id="maxVelocity" type="range" min="0.02" max="1.0" step="0.01" value="0.20">
+</div>
+<div class="ctrl" style="margin-bottom:0;">
+  <label for="velocityRetention" data-i18n="velocity_retention">速度保持率</label>
+  <span id="velocityRetentionValue">1.000</span>
+  <input id="velocityRetention" type="range" min="0.9" max="1.0" step="0.001" value="1.0">
+</div>
         <div class="ctrl-title"><i class="fa-solid fa-gauge-high"></i> <span data-i18n="perf_params">性能参数</span></div>
         <div class="ctrl">
           <label for="simMult" data-i18n="sim_mult">解算运算倍数</label>
