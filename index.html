@@ -267,7 +267,64 @@
           <label for="clothColor" data-i18n="base_color">布料基础色</label>
           <input id="clothColor" type="color" value="#9BCDEC">
         </div>
+                <!-- ========== 高级物理质感 ========== -->
+        <div class="ctrl-title"><i class="fa-solid fa-gem"></i> <span data-i18n="phys_mat_title">高级物理质感</span></div>
         
+        <div class="ctrl">
+          <label for="matTransmission" data-i18n="mat_transmission">透射 (透明感)</label>
+          <span id="matTransmissionValue">0.00</span>
+          <input id="matTransmission" type="range" min="0" max="1" step="0.01" value="0">
+        </div>
+        <div class="ctrl">
+          <label for="matClearcoat" data-i18n="mat_clearcoat">清漆 (高光层)</label>
+          <span id="matClearcoatValue">0.00</span>
+          <input id="matClearcoat" type="range" min="0" max="1" step="0.01" value="0">
+        </div>
+        <div class="ctrl">
+          <label for="matIor" data-i18n="mat_ior">折射率 IOR</label>
+          <span id="matIorValue">1.50</span>
+          <input id="matIor" type="range" min="1.0" max="2.333" step="0.01" value="1.5">
+        </div>
+        <div class="ctrl">
+          <label for="matThickness" data-i18n="mat_thickness">厚度</label>
+          <span id="matThicknessValue">0.00</span>
+          <input id="matThickness" type="range" min="0" max="5" step="0.1" value="0">
+        </div>
+        <div class="ctrl">
+          <label for="matAttenuation" data-i18n="mat_attenuation">衰减距离</label>
+          <span id="matAttenuationValue">0.00</span>
+          <input id="matAttenuation" type="range" min="0" max="10" step="0.1" value="0">
+        </div>
+        <div class="ctrl">
+          <label for="matAttenuationColor" data-i18n="mat_attenuation_color">衰减颜色</label>
+          <input id="matAttenuationColor" type="color" value="#ffffff">
+        </div>
+
+        <div class="ctrl">
+          <label for="matIridescence" data-i18n="mat_iridescence">虹彩强度</label>
+          <span id="matIridescenceValue">0.00</span>
+          <input id="matIridescence" type="range" min="0" max="1" step="0.01" value="0">
+        </div>
+        <div class="ctrl">
+          <label for="matIridescenceIor" data-i18n="mat_iridescence_ior">虹彩 IOR</label>
+          <span id="matIridescenceIorValue">1.30</span>
+          <input id="matIridescenceIor" type="range" min="1.0" max="2.333" step="0.01" value="1.3">
+        </div>
+
+        <div class="ctrl">
+          <label for="matSheen" data-i18n="mat_sheen">光泽 / 绒面</label>
+          <span id="matSheenValue">0.00</span>
+          <input id="matSheen" type="range" min="0" max="1" step="0.01" value="0">
+        </div>
+        <div class="ctrl">
+          <label for="matSheenColor" data-i18n="mat_sheen_color">光泽颜色</label>
+          <input id="matSheenColor" type="color" value="#ffffff">
+        </div>
+        <div class="ctrl">
+          <label for="matSheenRoughness" data-i18n="mat_sheen_roughness">光泽粗糙度</label>
+          <span id="matSheenRoughnessValue">0.50</span>
+          <input id="matSheenRoughness" type="range" min="0" max="1" step="0.01" value="0.5">
+        </div>
         <div class="ctrl-title"><i class="fa-solid fa-brush"></i> <span data-i18n="tex_filter_title">贴图滤镜</span></div>
         <div class="ctrl">
           <label for="textureFilterSelect" data-i18n="tex_filter">滤镜预设</label>

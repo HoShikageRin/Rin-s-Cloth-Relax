@@ -32,6 +32,18 @@ let thicknessTexEnabled = false;
 let flatShadingEnabled = false;
 let clothOpacity = 1.0;
 
+let clothTransmission = 0.0;
+let clothClearcoat = 0.0;
+let clothIor = 1.5;
+let clothThickness = 0.0;
+let clothAttenuation = 0.0;
+let clothAttenuationColor = "#ffffff";
+let clothIridescence = 0.0;
+let clothIridescenceIor = 1.3;
+let clothSheen = 0.0;
+let clothSheenColor = "#ffffff";
+let clothSheenRoughness = 0.5;
+
 let currentPbrType = "none";
 let pbrTexSize = 20.0;
 let pbrNormalScale = 1.0;
@@ -779,25 +791,26 @@ const tearPresets = {
 };
 
 const materialPresets = {
-    default: { light: 0.45, rough: 0.75, metal: 0.0, flat: false, opacity: 1.0 },
-    cotton: { light: 0.5, rough: 1.0, metal: 0.0, flat: false, opacity: 1.0 },
-    silk: { light: 0.6, rough: 0.15, metal: 0.2, flat: false, opacity: 0.8 },
-    metal: { light: 0.8, rough: 0.4, metal: 1.0, flat: false, opacity: 1.0 },
-    leather: { light: 0.35, rough: 0.95, metal: 0.0, flat: false, opacity: 1.0 },
-    holographic: { light: 1.0, rough: 0.1, metal: 0.9, flat: false, opacity: 0.7 },
-    gauze: { light: 0.6, rough: 0.85, metal: 0.1, flat: false, opacity: 0.35 },
-    chiffon: { light: 0.7, rough: 0.2, metal: 0.2, flat: false, opacity: 0.5 },
-    glass: { light: 0.8, rough: 0.05, metal: 0.9, flat: false, opacity: 0.25 },
-    jelly: { light: 0.5, rough: 0.3, metal: 0.0, flat: false, opacity: 0.65 },
-    film: { light: 0.9, rough: 0.1, metal: 0.6, flat: false, opacity: 0.2 },
-    tie_dye: { light: 0.55, rough: 0.75, metal: 0.0, flat: false, opacity: 1.0 },
-    batik: { light: 0.4, rough: 0.95, metal: 0.0, flat: false, opacity: 1.0 },
-    polyester: { light: 0.6, rough: 0.4, metal: 0.1, flat: false, opacity: 1.0 },
-    tr_blend: { light: 0.5, rough: 0.8, metal: 0.0, flat: false, opacity: 1.0 },
-    worsted_wool: { light: 0.4, rough: 0.95, metal: 0.0, flat: false, opacity: 1.0 },
-    washed_cotton: { light: 0.5, rough: 0.9, metal: 0.0, flat: false, opacity: 1.0 },
-    paper: { light: 0.6, rough: 1.0, metal: 0.0, flat: false, opacity: 1.0 },
-    wet_cloth: { light: 0.8, rough: 0.2, metal: 0.3, flat: false, opacity: 0.9 }
+    default: { light: 0.45, rough: 0.75, metal: 0.0, flat: false, opacity: 1.0, trans: 0, clear: 0, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0, sheenCol: "#ffffff", sheenRough: 0.5 },
+    cotton: { light: 0.5, rough: 1.0, metal: 0.0, flat: false, opacity: 1.0, trans: 0, clear: 0, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.4, sheenCol: "#ffffff", sheenRough: 0.8 },
+    silk: { light: 0.6, rough: 0.15, metal: 0.2, flat: false, opacity: 0.8, trans: 0, clear: 0.6, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.8, sheenCol: "#ffffff", sheenRough: 0.2 },
+    metal: { light: 0.8, rough: 0.4, metal: 1.0, flat: false, opacity: 1.0, trans: 0, clear: 0.2, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0, sheenCol: "#ffffff", sheenRough: 0.5 },
+    leather: { light: 0.35, rough: 0.95, metal: 0.0, flat: false, opacity: 1.0, trans: 0, clear: 0.3, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0, sheenCol: "#ffffff", sheenRough: 0.5 },
+    holographic: { light: 1.0, rough: 0.1, metal: 0.9, flat: false, opacity: 0.7, trans: 0, clear: 1.0, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 1.0, iridIor: 1.6, sheen: 0, sheenCol: "#ffffff", sheenRough: 0.5 },
+    gauze: { light: 0.6, rough: 0.85, metal: 0.1, flat: false, opacity: 0.35, trans: 0.5, clear: 0, ior: 1.5, thick: 0.1, atten: 2, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.3, sheenCol: "#ffffff", sheenRough: 0.8 },
+    chiffon: { light: 0.7, rough: 0.2, metal: 0.2, flat: false, opacity: 0.5, trans: 0.4, clear: 0.2, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.6, sheenCol: "#ffffff", sheenRough: 0.4 },
+    glass: { light: 0.8, rough: 0.05, metal: 0.9, flat: false, opacity: 1.0, trans: 1.0, clear: 1.0, ior: 1.5, thick: 0.5, atten: 1.5, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0, sheenCol: "#ffffff", sheenRough: 0.5 },
+    jelly: { light: 0.5, rough: 0.3, metal: 0.0, flat: false, opacity: 0.9, trans: 0.8, clear: 0.8, ior: 1.4, thick: 1.0, atten: 3, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0, sheenCol: "#ffffff", sheenRough: 0.5 },
+    film: { light: 0.9, rough: 0.1, metal: 0.6, flat: false, opacity: 0.2, trans: 0.2, clear: 1.0, ior: 1.6, thick: 0.1, atten: 0.5, attenCol: "#ffffff", irid: 0.4, iridIor: 1.4, sheen: 0, sheenCol: "#ffffff", sheenRough: 0.5 },
+    // ... 其他普通布料保持透明度和基础属性，clearcoat 给微弱的 0.1
+    tie_dye: { light: 0.55, rough: 0.75, metal: 0.0, flat: false, opacity: 1.0, trans: 0, clear: 0, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.2, sheenCol: "#ffffff", sheenRough: 0.6 },
+    batik: { light: 0.4, rough: 0.95, metal: 0.0, flat: false, opacity: 1.0, trans: 0, clear: 0, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.1, sheenCol: "#ffffff", sheenRough: 0.9 },
+    polyester: { light: 0.6, rough: 0.4, metal: 0.1, flat: false, opacity: 1.0, trans: 0, clear: 0.1, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.3, sheenCol: "#ffffff", sheenRough: 0.5 },
+    tr_blend: { light: 0.5, rough: 0.8, metal: 0.0, flat: false, opacity: 1.0, trans: 0, clear: 0, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.2, sheenCol: "#ffffff", sheenRough: 0.7 },
+    worsted_wool: { light: 0.4, rough: 0.95, metal: 0.0, flat: false, opacity: 1.0, trans: 0, clear: 0, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.5, sheenCol: "#ffffff", sheenRough: 0.8 },
+    washed_cotton: { light: 0.5, rough: 0.9, metal: 0.0, flat: false, opacity: 1.0, trans: 0, clear: 0, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.3, sheenCol: "#ffffff", sheenRough: 0.9 },
+    paper: { light: 0.6, rough: 1.0, metal: 0.0, flat: false, opacity: 1.0, trans: 0, clear: 0, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0, sheenCol: "#ffffff", sheenRough: 0.5 },
+    wet_cloth: { light: 0.8, rough: 0.2, metal: 0.3, flat: false, opacity: 0.9, trans: 0.1, clear: 0.5, ior: 1.33, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0, sheenCol: "#ffffff", sheenRough: 0.5 }
 };
 
 const windPresets = {
@@ -1431,15 +1444,55 @@ physicsPresetSelect.onchange = () => {
 materialPresetSelect.onchange = () => {
     const preset = materialPresets[materialPresetSelect.value];
     if (!preset) return;
+    
+    // 原有
     lightIntensitySlider.value = preset.light;
     roughnessSlider.value = preset.rough;
     metalnessSlider.value = preset.metal;
     toggleFlat.checked = preset.flat;
     if (preset.opacity !== undefined) { opacitySlider.value = preset.opacity; clothOpacity = preset.opacity; }
+    
+    // 新增高级参数
+    clothTransmission = preset.trans !== undefined ? preset.trans : 0;
+    clothClearcoat = preset.clear !== undefined ? preset.clear : 0;
+    clothIor = preset.ior !== undefined ? preset.ior : 1.5;
+    clothThickness = preset.thick !== undefined ? preset.thick : 0;
+    clothAttenuation = preset.atten !== undefined ? preset.atten : 0;
+    clothAttenuationColor = preset.attenCol || "#ffffff";
+    clothIridescence = preset.irid !== undefined ? preset.irid : 0;
+    clothIridescenceIor = preset.iridIor !== undefined ? preset.iridIor : 1.3;
+    clothSheen = preset.sheen !== undefined ? preset.sheen : 0;
+    clothSheenColor = preset.sheenCol || "#ffffff";
+    clothSheenRoughness = preset.sheenRough !== undefined ? preset.sheenRough : 0.5;
+
+    // 更新 UI 滑块
+    document.getElementById("matTransmission").value = clothTransmission;
+    document.getElementById("matTransmissionValue").textContent = clothTransmission.toFixed(2);
+    document.getElementById("matClearcoat").value = clothClearcoat;
+    document.getElementById("matClearcoatValue").textContent = clothClearcoat.toFixed(2);
+    document.getElementById("matIor").value = clothIor;
+    document.getElementById("matIorValue").textContent = clothIor.toFixed(2);
+    document.getElementById("matThickness").value = clothThickness;
+    document.getElementById("matThicknessValue").textContent = clothThickness.toFixed(2);
+    document.getElementById("matAttenuation").value = clothAttenuation;
+    document.getElementById("matAttenuationValue").textContent = clothAttenuation.toFixed(2);
+    document.getElementById("matAttenuationColor").value = clothAttenuationColor;
+    document.getElementById("matIridescence").value = clothIridescence;
+    document.getElementById("matIridescenceValue").textContent = clothIridescence.toFixed(2);
+    document.getElementById("matIridescenceIor").value = clothIridescenceIor;
+    document.getElementById("matIridescenceIorValue").textContent = clothIridescenceIor.toFixed(2);
+    document.getElementById("matSheen").value = clothSheen;
+    document.getElementById("matSheenValue").textContent = clothSheen.toFixed(2);
+    document.getElementById("matSheenColor").value = clothSheenColor;
+    document.getElementById("matSheenRoughness").value = clothSheenRoughness;
+    document.getElementById("matSheenRoughnessValue").textContent = clothSheenRoughness.toFixed(2);
+
+    // 原有更新文本
     document.getElementById("lightIntensityValue").textContent = parseFloat(preset.light).toFixed(2);
     document.getElementById("roughnessValue").textContent = parseFloat(preset.rough).toFixed(2);
     document.getElementById("metalnessValue").textContent = parseFloat(preset.metal).toFixed(2);
     if (preset.opacity !== undefined) { document.getElementById("opacityValue").textContent = parseFloat(preset.opacity).toFixed(2); }
+    
     if (dirLight && lightEnabled) dirLight.intensity = preset.light;
     if (clothMesh) switchClothMaterial();
     if (thicknessEnabled) updateThicknessMesh();
@@ -3525,6 +3578,25 @@ clearCustomNormalBtn.onclick = () => {
 };
 
 function applyMaterialProps() {
+    const applyPhysProps = (m) => {
+        if ("transmission" in m) m.transmission = clothTransmission;
+        if ("clearcoat" in m) m.clearcoat = clothClearcoat;
+        if ("ior" in m) m.ior = clothIor;
+        if ("thickness" in m) m.thickness = clothThickness;
+        if ("attenuationDistance" in m) m.attenuationDistance = clothAttenuation === 0 ? Infinity : clothAttenuation;
+        if ("attenuationColor" in m) m.attenuationColor.set(clothAttenuationColor);
+        if ("iridescence" in m) m.iridescence = clothIridescence;
+        if ("iridescenceIOR" in m) m.iridescenceIOR = clothIridescenceIor;
+        if ("sheen" in m) m.sheen = clothSheen;
+        if ("sheenColor" in m) m.sheenColor.set(clothSheenColor);
+        if ("sheenRoughness" in m) m.sheenRoughness = clothSheenRoughness;
+        
+        // 如果有透射，必须开启透明渲染
+        if (clothTransmission > 0) {
+            m.transparent = true;
+            m.depthWrite = false;
+        }
+    };
     const rough = parseFloat(roughnessSlider.value);
     const metal = parseFloat(metalnessSlider.value);
     const applyToMat = (m) => {
@@ -3761,7 +3833,25 @@ function switchClothMaterial() {
                 stdProps.normalMap = baseNormalForShader;
                 stdProps.normalScale = new THREE.Vector2(pbrNormalScale, pbrNormalScale);
             }
-            mat = new THREE.MeshStandardMaterial(stdProps);
+                        stdProps.transmission = clothTransmission;
+            stdProps.clearcoat = clothClearcoat;
+            stdProps.ior = clothIor;
+            stdProps.thickness = clothThickness;
+            stdProps.attenuationDistance = clothAttenuation === 0 ? Infinity : clothAttenuation;
+            stdProps.attenuationColor = new THREE.Color(clothAttenuationColor);
+            stdProps.iridescence = clothIridescence;
+            stdProps.iridescenceIOR = clothIridescenceIor;
+            stdProps.sheen = clothSheen;
+            stdProps.sheenColor = new THREE.Color(clothSheenColor);
+            stdProps.sheenRoughness = clothSheenRoughness;
+            
+            // 如果有透射，强制开启 transparent
+            if (clothTransmission > 0) {
+                stdProps.transparent = true;
+                stdProps.depthWrite = false;
+            }
+            
+            mat = new THREE.MeshPhysicalMaterial(stdProps);
         }
     } else {
         // ---------- 无光照（Basic）----------
@@ -4322,6 +4412,19 @@ function injectTooltips() {
         "zoom":                 "cam_zoom_desc",
         "camX":                 "cam_left_desc",
         "camY":                 "cam_up_desc",
+
+                // ---- 高级物理材质（新） ----
+        "matTransmission":      "mat_transmission_desc",
+        "matClearcoat":         "mat_clearcoat_desc",
+        "matIor":               "mat_ior_desc",
+        "matThickness":         "mat_thickness_desc",
+        "matAttenuation":       "mat_attenuation_desc",
+        "matAttenuationColor":  "mat_attenuation_color_desc",
+        "matIridescence":       "mat_iridescence_desc",
+        "matIridescenceIor":    "mat_iridescence_ior_desc",
+        "matSheen":             "mat_sheen_desc",
+        "matSheenColor":        "mat_sheen_color_desc",
+        "matSheenRoughness":    "mat_sheen_roughness_desc",
     };
 
     document.querySelectorAll('.ctrl label').forEach(label => {
@@ -6480,6 +6583,18 @@ bindSlider("collisionRadius", "collisionRadiusValue", () => { collisionPresetSel
 bindSlider("collisionForce", "collisionForceValue", () => { collisionPresetSelect.value = "custom"; }, (v) => parseFloat(v).toFixed(1));
 bindSlider("collisionIters", "collisionItersValue", () => { collisionPresetSelect.value = "custom"; }, (v) => parseInt(v));
 // 辅助：拖动即把预设归为自定义
+bindSlider("matTransmission", "matTransmissionValue", (v) => { clothTransmission = v; applyMaterialProps(); if (clothMesh) switchClothMaterial(); });
+bindSlider("matClearcoat", "matClearcoatValue", (v) => { clothClearcoat = v; applyMaterialProps(); if (clothMesh) switchClothMaterial(); });
+bindSlider("matIor", "matIorValue", (v) => { clothIor = v; applyMaterialProps(); if (clothMesh) switchClothMaterial(); });
+bindSlider("matThickness", "matThicknessValue", (v) => { clothThickness = v; applyMaterialProps(); if (clothMesh) switchClothMaterial(); });
+bindSlider("matAttenuation", "matAttenuationValue", (v) => { clothAttenuation = v; applyMaterialProps(); if (clothMesh) switchClothMaterial(); });
+bindSlider("matIridescence", "matIridescenceValue", (v) => { clothIridescence = v; applyMaterialProps(); if (clothMesh) switchClothMaterial(); });
+bindSlider("matIridescenceIor", "matIridescenceIorValue", (v) => { clothIridescenceIor = v; applyMaterialProps(); if (clothMesh) switchClothMaterial(); });
+bindSlider("matSheen", "matSheenValue", (v) => { clothSheen = v; applyMaterialProps(); if (clothMesh) switchClothMaterial(); });
+bindSlider("matSheenRoughness", "matSheenRoughnessValue", (v) => { clothSheenRoughness = v; applyMaterialProps(); if (clothMesh) switchClothMaterial(); });
+
+document.getElementById("matAttenuationColor").oninput = (e) => { clothAttenuationColor = e.target.value; applyMaterialProps(); if (clothMesh) switchClothMaterial(); };
+document.getElementById("matSheenColor").oninput = (e) => { clothSheenColor = e.target.value; applyMaterialProps(); if (clothMesh) switchClothMaterial(); };
 function bindPhysSlider(id, valId, setter, fmt) {
     bindSlider(id, valId, (v) => {
         setter(v);
