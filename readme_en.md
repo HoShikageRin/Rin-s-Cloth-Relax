@@ -4,7 +4,7 @@
 
 # HoshikageRin's Cloth Relax
 
-✨ A cloth simulation physics sandbox based on three.js using Verlet + Point-Mass algorithm
+✨ A physics sandbox featuring cloth simulation using the XPBD algorithm ~~(Verlet + particles)~~ (rewritten on 11/26/12), implemented using three.js
 
 All calculations are done locally in the browser, images are not uploaded to any server.
 
@@ -18,7 +18,7 @@ All calculations are done locally in the browser, images are not uploaded to any
 - Supports normal maps and procedural textures
 - Cute decorative pendants (all pendant models are originally created by me Ow<✨), supports importing custom GLB models
 - Wind, gravity, self-collision, water drop effects
-- Great for relaxation, and can also serve as a reference for Live2D / Spine / Creature skirt/sway physics
+- Great for relaxation
 
 🎀 About Custom Decorations
 

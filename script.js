@@ -619,6 +619,9 @@ const physicsExtraDefaults = {
     collFric: 0.6, dragStr: 0.4, airExp: 0.2, maxVel: 0.20, velRet: 1.0
 };
 
+// ==============================================================
+// 🟢 修复 1：全新的物理预设参数（针对蜷缩和抖动）
+// ==============================================================
 const physicsPresets = {
     cotton: {
         stiffness: 0.45, maxStretch: 1.5, damping: 0.07, mass: 25.0, meshRes: 24, maxDrag: 0.6, iterations: 6, hz: 100,
@@ -656,16 +659,18 @@ const physicsPresets = {
         collFric: 0.65, dragStr: 0.30, airExp: 0.25, maxVel: 0.16, velRet: 1.0
     },
     denim: {
-        stiffness: 0.85, maxStretch: 1.1, damping: 0.1, mass: 60.0, meshRes: 32, maxDrag: 0.4, iterations: 4, hz: 120,
+        // 🟢 优化：降低刚度，提升迭代与阻尼，解决抖动
+        stiffness: 0.65, maxStretch: 1.1, damping: 0.15, mass: 40.0, meshRes: 32, maxDrag: 0.4, iterations: 8, hz: 120,
         plasticity: false, plRate: 0.03, plThreshold: 1.05, plRecovery: 0.002, plMax: 1.8,
-        bend: 0.60, shear: 1.8, stiffX: 1.6, stiffY: 1.1, springDamp: 0.06,
+        bend: 0.30, shear: 1.2, stiffX: 1.1, stiffY: 1.0, springDamp: 0.1,
         windSpatial: 4.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.85,
         collFric: 0.70, dragStr: 0.30, airExp: 0.28, maxVel: 0.15, velRet: 1.0
     },
     leather: {
-        stiffness: 0.95, maxStretch: 1.05, damping: 0.12, mass: 80.0, meshRes: 36, maxDrag: 0.4, iterations: 4, hz: 120,
-        plasticity: true, plRate: 0.10, plThreshold: 1.02, plRecovery: 0.0005, plMax: 2.5,
-        bend: 0.80, shear: 2.0, stiffX: 1.5, stiffY: 1.5, springDamp: 0.08,
+        // 🟢 优化：降低质量，放宽拉伸，防止重力蜷缩
+        stiffness: 0.7, maxStretch: 1.15, damping: 0.15, mass: 35.0, meshRes: 36, maxDrag: 0.4, iterations: 8, hz: 120,
+        plasticity: true, plRate: 0.04, plThreshold: 1.1, plRecovery: 0.001, plMax: 2.5,
+        bend: 0.25, shear: 1.4, stiffX: 1.2, stiffY: 1.2, springDamp: 0.1,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.9,
         collFric: 0.75, dragStr: 0.28, airExp: 0.30, maxVel: 0.15, velRet: 1.0
     },
@@ -698,9 +703,10 @@ const physicsPresets = {
         collFric: 0.35, dragStr: 0.55, airExp: 0.10, maxVel: 0.28, velRet: 1.0
     },
     canvas: {
-        stiffness: 0.9, maxStretch: 1.05, damping: 0.1, mass: 70.0, meshRes: 40, maxDrag: 0.3, iterations: 5, hz: 120,
+        // 🟢 优化：降低刚度，提升迭代与阻尼，解决抖动
+        stiffness: 0.65, maxStretch: 1.1, damping: 0.15, mass: 50.0, meshRes: 40, maxDrag: 0.3, iterations: 8, hz: 120,
         plasticity: false, plRate: 0.06, plThreshold: 1.03, plRecovery: 0.001, plMax: 2.0,
-        bend: 0.70, shear: 1.8, stiffX: 1.5, stiffY: 1.5, springDamp: 0.06,
+        bend: 0.35, shear: 1.2, stiffX: 1.1, stiffY: 1.1, springDamp: 0.1,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.9,
         collFric: 0.70, dragStr: 0.28, airExp: 0.30, maxVel: 0.15, velRet: 1.0
     },
@@ -726,11 +732,12 @@ const physicsPresets = {
         collFric: 0.55, dragStr: 0.45, airExp: 0.25, maxVel: 0.20, velRet: 1.0
     },
     metal: {
-        stiffness: 1.0, maxStretch: 1.0, damping: 0.2, mass: 150.0, meshRes: 32, maxDrag: 0.2, iterations: 3, hz: 120,
-        plasticity: true, plRate: 0.15, plThreshold: 1.01, plRecovery: 0.0001, plMax: 1.5,
-        bend: 1.00, shear: 2.5, stiffX: 1.5, stiffY: 1.5, springDamp: 0.10,
+        // 🟢 优化：质量大减，放宽拉伸，防止蜷缩
+        stiffness: 0.75, maxStretch: 1.15, damping: 0.2, mass: 50.0, meshRes: 32, maxDrag: 0.2, iterations: 8, hz: 120,
+        plasticity: true, plRate: 0.05, plThreshold: 1.1, plRecovery: 0.001, plMax: 1.5,
+        bend: 0.35, shear: 1.6, stiffX: 1.2, stiffY: 1.2, springDamp: 0.12,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
-        collFric: 0.80, dragStr: 0.25, airExp: 0.35, maxVel: 0.12, velRet: 1.0
+        collFric: 0.80, dragStr: 0.25, airExp: 0.35, maxVel: 0.15, velRet: 1.0
     },
     paper: {
         stiffness: 0.6, maxStretch: 1.02, damping: 0.05, mass: 2.0, meshRes: 16, maxDrag: 0.2, iterations: 4, hz: 60,
@@ -754,11 +761,12 @@ const physicsPresets = {
         collFric: 0.40, dragStr: 0.50, airExp: 0.12, maxVel: 0.28, velRet: 1.0
     },
     metalsheet: {
-        stiffness: 1.0, maxStretch: 1.0, damping: 0.25, mass: 200.0, meshRes: 18, maxDrag: 0.2, iterations: 3, hz: 120,
-        plasticity: true, plRate: 0.08, plThreshold: 1.02, plRecovery: 0, plMax: 2.5,
-        bend: 0.90, shear: 2.0, stiffX: 1.5, stiffY: 1.5, springDamp: 0.12,
+        // 🟢 优化：质量大减，放宽拉伸，防止蜷缩
+        stiffness: 0.8, maxStretch: 1.15, damping: 0.25, mass: 60.0, meshRes: 18, maxDrag: 0.2, iterations: 8, hz: 120,
+        plasticity: true, plRate: 0.03, plThreshold: 1.1, plRecovery: 0, plMax: 2.5,
+        bend: 0.35, shear: 1.5, stiffX: 1.2, stiffY: 1.2, springDamp: 0.12,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
-        collFric: 0.80, dragStr: 0.22, airExp: 0.35, maxVel: 0.12, velRet: 1.0
+        collFric: 0.80, dragStr: 0.22, airExp: 0.35, maxVel: 0.15, velRet: 1.0
     },
     jelly: {
         stiffness: 0.1, maxStretch: 2.8, damping: 0.02, mass: 90.0, meshRes: 24, maxDrag: 2.5, iterations: 15, hz: 120,
@@ -5744,6 +5752,9 @@ function destroyCloth() {
     if (moveToggle) moveToggle.checked = false;
 }
 
+// ==============================================================
+// 🟢 核心重写：引入子步 (Substeps) 来彻底解决抖动和蜷缩
+// ==============================================================
 class Cloth {
     constructor(bounds, pinStrokes, res) {
         const bWidth = Math.max(0.01, bounds.maxX - bounds.minX);
@@ -6095,13 +6106,19 @@ simulate(dt) {
     const noiseSpeed = parseFloat(windSpeedSlider.value);
     const t = performance.now() * 0.001;
     const baseWindX = Math.cos(ang), baseWindY = Math.sin(ang);
-    const subDt = dt * simMult, dt2 = subDt * subDt;
+    
+    // 🟢 核心重构：引入物理子步（Substeps）防抖动
+    const SUBSTEPS = 3;
+    const subDt = (dt * simMult) / SUBSTEPS;
+    const dt2 = subDt * subDt;
+    
     const stretchLimit = parseFloat(maxStretchSlider.value);
     const effectiveStiff = stiff * (1.5 / stretchLimit);
 
     // ===== 新增参数读取 =====
     const gBase = parseFloat(gravitySlider.value); // 0~0.3，默认 0.1
-    const gravityAccel = gBase * 40;
+    // 🟢 因为分成了 3 个子步，加速度的位移被缩小了 3 倍，这里补偿回来！
+    const gravityAccel = gBase * 120; 
     const gAng = gravityAngle * Math.PI / 180;
     const gravGX = Math.sin(gAng);
     const gravGY = -Math.cos(gAng);
@@ -6136,122 +6153,61 @@ simulate(dt) {
         }
     }
 
-    // ================= 积分 =================
-    for (let i = 0; i < this.particles.length; i++) {
-        const p = this.particles[i];
-        if (p.pinned || lockedIndices.has(i)) continue;
-
-        const extraGravity = decorGravityMap[i];
-        const massRatio = baseMass / 25.0;
-        const retention = Math.max(0, 1.0 - dampCoeff * Math.pow(massRatio, airExp));
-        const windAccelBase = wind * 35 * Math.pow(massRatio, -0.5);
-
-        const vx = (p.x - p.oldX) * retention * velRet;
-        const vy = (p.y - p.oldY) * retention * velRet;
-        const vz = (p.z - p.oldZ) * retention * velRet;
-        p.oldX = p.x; p.oldY = p.y; p.oldZ = p.z;
-
-        const nx = p.x * spatialFreq + t * noiseSpeed;
-        const ny = p.y * spatialFreq + t * noiseSpeed * 1.2;
-        const nz = p.z * spatialFreq + t * noiseSpeed * 0.8;
-        const turbulenceX = Math.sin(nx) * Math.cos(ny) + Math.sin(nz * 1.3) * Math.cos(nx * 0.9);
-        const turbulenceY = Math.sin(ny) * Math.cos(nz) + Math.sin(nx * 1.1) * Math.cos(ny * 0.8);
-        const turbulenceZ = Math.sin(nz) * Math.cos(nx) + Math.sin(ny * 1.4) * Math.cos(nz * 1.1);
-
-        const windForceX = (baseWindX + turbulenceX * noiseRandom) * windAccelBase * noiseAmp;
-        const windForceY = (baseWindY + turbulenceY * noiseRandom) * windAccelBase * noiseAmp;
-        const windForceZ = (windZComp + turbulenceZ * noiseRandom) * windAccelBase * noiseAmp;
-
-        let dx = vx + windForceX * dt2;
-        let dy = vy + (windForceY + gravityAccel * gravGY - extraGravity) * dt2;
-        let dz = vz + windForceZ * dt2;
-        dx += gravityAccel * gravGX * dt2;
-
-        dx = Math.max(-maxDelta, Math.min(maxDelta, dx));
-        dy = Math.max(-maxDelta, Math.min(maxDelta, dy));
-        dz = Math.max(-maxDelta, Math.min(maxDelta, dz));
-        p.x += dx; p.y += dy; p.z += dz;
-
-        // 地面碰撞
-        if (groundCollisionEnabled && p.y < groundY) {
-            p.y = groundY;
-            const hvx = p.x - p.oldX;
-            const hvz = p.z - p.oldZ;
-            p.oldX = p.x - hvx * groundFriction;
-            p.oldZ = p.z - hvz * groundFriction;
-            p.oldY = p.y + (p.y - p.oldY) * 0.2;
-        }
-    }
-
-    // ================= 弹簧约束 + 塑性 =================
     const iterations = parseInt(document.getElementById("constraintIterations").value);
-    for (let iter = 0; iter < iterations; iter++) {
-        for (const s of this.springs) {
-            if (s.broken) continue;
-            const p1 = this.particles[s.i], p2 = this.particles[s.j];
-            const dx = p2.x - p1.x, dy = p2.y - p1.y, dz = p2.z - p1.z;
-            const dist = Math.hypot(dx, dy, dz);
-            if (dist === 0) continue;
-            const w1 = (p1.pinned || lockedIndices.has(s.i)) ? 0 : p1.invMass;
-            const w2 = (p2.pinned || lockedIndices.has(s.j)) ? 0 : p2.invMass;
-            const wSum = w1 + w2;
-            if (wSum === 0) continue;
 
-            // 各向异性刚度
-            let stiffMul = 1.0;
-            if (s.type === 'shear') stiffMul = shearK;
-            else if (s.type === 'structural') {
-                if (s.axis === 'h') stiffMul = stiffXK;
-                else if (s.axis === 'v') stiffMul = stiffYK;
+    // 子步循环
+    for (let step = 0; step < SUBSTEPS; step++) {
+        // ================= 积分 =================
+        for (let i = 0; i < this.particles.length; i++) {
+            const p = this.particles[i];
+            if (p.pinned || lockedIndices.has(i)) continue;
+
+            const extraGravity = decorGravityMap[i];
+            const massRatio = baseMass / 25.0;
+            const retention = Math.max(0, 1.0 - dampCoeff * Math.pow(massRatio, airExp));
+            // 🟢 风力同理，放大 3 倍恢复真实的飘动感
+            const windAccelBase = wind * 105 * Math.pow(massRatio, -0.5);
+
+            const vx = (p.x - p.oldX) * retention * velRet;
+            const vy = (p.y - p.oldY) * retention * velRet;
+            const vz = (p.z - p.oldZ) * retention * velRet;
+            p.oldX = p.x; p.oldY = p.y; p.oldZ = p.z;
+
+            const nx = p.x * spatialFreq + t * noiseSpeed;
+            const ny = p.y * spatialFreq + t * noiseSpeed * 1.2;
+            const nz = p.z * spatialFreq + t * noiseSpeed * 0.8;
+            const turbulenceX = Math.sin(nx) * Math.cos(ny) + Math.sin(nz * 1.3) * Math.cos(nx * 0.9);
+            const turbulenceY = Math.sin(ny) * Math.cos(nz) + Math.sin(nx * 1.1) * Math.cos(ny * 0.8);
+            const turbulenceZ = Math.sin(nz) * Math.cos(nx) + Math.sin(ny * 1.4) * Math.cos(nz * 1.1);
+
+            const windForceX = (baseWindX + turbulenceX * noiseRandom) * windAccelBase * noiseAmp;
+            const windForceY = (baseWindY + turbulenceY * noiseRandom) * windAccelBase * noiseAmp;
+            const windForceZ = (windZComp + turbulenceZ * noiseRandom) * windAccelBase * noiseAmp;
+
+            let dx = vx + windForceX * dt2;
+            let dy = vy + (windForceY + gravityAccel * gravGY - extraGravity) * dt2;
+            let dz = vz + windForceZ * dt2;
+            dx += gravityAccel * gravGX * dt2;
+
+            dx = Math.max(-maxDelta, Math.min(maxDelta, dx));
+            dy = Math.max(-maxDelta, Math.min(maxDelta, dy));
+            dz = Math.max(-maxDelta, Math.min(maxDelta, dz));
+            p.x += dx; p.y += dy; p.z += dz;
+
+            // 地面碰撞
+            if (groundCollisionEnabled && p.y < groundY) {
+                p.y = groundY;
+                const hvx = p.x - p.oldX;
+                const hvz = p.z - p.oldZ;
+                p.oldX = p.x - hvx * groundFriction;
+                p.oldZ = p.z - hvz * groundFriction;
+                p.oldY = p.y + (p.y - p.oldY) * 0.2;
             }
-            const localStiff = effectiveStiff * stiffMul;
-
-            // ===== 塑性形变 =====
-            if (plasticOn) {
-                const strain = dist / s.restLength;
-                if (strain > plasticThreshold) {
-                    const excess = dist - s.restLength * plasticThreshold;
-                    s.restLength += excess * plasticRate;
-                    const cap = s.originalRestLength * plasticMax;
-                    if (s.restLength > cap) s.restLength = cap;
-                } else if (plasticRecovery > 0 && s.restLength > s.originalRestLength) {
-                    s.restLength -= (s.restLength - s.originalRestLength) * plasticRecovery;
-                }
-            }
-
-            const maxStretch = s.restLength * stretchLimit;
-            let diffX = 0, diffY = 0, diffZ = 0;
-            if (dist > maxStretch) {
-                const excess = dist - maxStretch;
-                const nx = dx / dist, ny = dy / dist, nz = dz / dist;
-                diffX = nx * excess; diffY = ny * excess; diffZ = nz * excess;
-            } else {
-                const diff = (dist - s.restLength) / dist * localStiff;
-                diffX = dx * diff; diffY = dy * diff; diffZ = dz * diff;
-            }
-
-            // 弹簧阻尼（抑制振荡）
-            if (springDamp > 0) {
-                const rvx = (p2.x - p2.oldX) - (p1.x - p1.oldX);
-                const rvy = (p2.y - p2.oldY) - (p1.y - p1.oldY);
-                const rvz = (p2.z - p2.oldZ) - (p1.z - p1.oldZ);
-                const rvDotN = (rvx * dx + rvy * dy + rvz * dz) / (dist * dist);
-                diffX += dx * rvDotN * springDamp;
-                diffY += dy * rvDotN * springDamp;
-                diffZ += dz * rvDotN * springDamp;
-            }
-
-            const mc = 0.2;
-            diffX = Math.max(-mc, Math.min(mc, diffX));
-            diffY = Math.max(-mc, Math.min(mc, diffY));
-            diffZ = Math.max(-mc, Math.min(mc, diffZ));
-            p1.x += diffX * (w1 / wSum); p1.y += diffY * (w1 / wSum); p1.z += diffZ * (w1 / wSum);
-            p2.x -= diffX * (w2 / wSum); p2.y -= diffY * (w2 / wSum); p2.z -= diffZ * (w2 / wSum);
         }
 
-        // ===== 弯曲弹簧（不参与撕裂与塑性）=====
-        if (bendK > 0.001 && this.bendSprings.length) {
-            for (const s of this.bendSprings) {
+        // ================= 弹簧约束 + 塑性 =================
+        for (let iter = 0; iter < iterations; iter++) {
+            for (const s of this.springs) {
                 if (s.broken) continue;
                 const p1 = this.particles[s.i], p2 = this.particles[s.j];
                 const dx = p2.x - p1.x, dy = p2.y - p1.y, dz = p2.z - p1.z;
@@ -6261,24 +6217,105 @@ simulate(dt) {
                 const w2 = (p2.pinned || lockedIndices.has(s.j)) ? 0 : p2.invMass;
                 const wSum = w1 + w2;
                 if (wSum === 0) continue;
-                const diff = (dist - s.restLength) / dist * bendK * 0.5;
-                let diffX = dx * diff, diffY = dy * diff, diffZ = dz * diff;
-                const mc = 0.1;
+
+                // 各向异性刚度
+                let stiffMul = 1.0;
+                if (s.type === 'shear') stiffMul = shearK;
+                else if (s.type === 'structural') {
+                    if (s.axis === 'h') stiffMul = stiffXK;
+                    else if (s.axis === 'v') stiffMul = stiffYK;
+                }
+                const localStiff = effectiveStiff * stiffMul;
+
+                // ===== 塑性形变 =====
+                if (plasticOn) {
+                    const strain = dist / s.restLength;
+                    if (strain > plasticThreshold) {
+                        const excess = dist - s.restLength * plasticThreshold;
+                        s.restLength += excess * plasticRate;
+                        const cap = s.originalRestLength * plasticMax;
+                        if (s.restLength > cap) s.restLength = cap;
+                    } else if (plasticRecovery > 0 && s.restLength > s.originalRestLength) {
+                        s.restLength -= (s.restLength - s.originalRestLength) * plasticRecovery;
+                    }
+                }
+
+                const maxStretch = s.restLength * stretchLimit;
+                let diffX = 0, diffY = 0, diffZ = 0;
+                if (dist > maxStretch) {
+                    // 如果超出了最大拉伸
+                    const excess = dist - maxStretch;
+                    const nx = dx / dist, ny = dy / dist, nz = dz / dist;
+                    
+                    // 🟢 核心修复 1：不要一次性全部拉回，只拉回一部分，或者限制单次最大拉力，防止弹弓效应
+                    const pullAmount = Math.min(excess * 0.5, 0.05); // 最多单次修正 0.05 的距离
+                    diffX = nx * pullAmount; diffY = ny * pullAmount; diffZ = nz * pullAmount;
+
+                    // 🟢 核心修复 2：强行消耗超限弹簧的动能，防止它一直抖动
+                    p1.oldX = p1.x - (p1.x - p1.oldX) * 0.5;
+                    p1.oldY = p1.y - (p1.y - p1.oldY) * 0.5;
+                    p1.oldZ = p1.z - (p1.z - p1.oldZ) * 0.5;
+                    
+                    p2.oldX = p2.x - (p2.x - p2.oldX) * 0.5;
+                    p2.oldY = p2.y - (p2.y - p2.oldY) * 0.5;
+                    p2.oldZ = p2.z - (p2.z - p2.oldZ) * 0.5;
+
+                } else {
+                    const diff = (dist - s.restLength) / dist * localStiff;
+                    diffX = dx * diff; diffY = dy * diff; diffZ = dz * diff;
+                }
+
+                // 弹簧阻尼（抑制振荡）
+                if (springDamp > 0) {
+                    const rvx = (p2.x - p2.oldX) - (p1.x - p1.oldX);
+                    const rvy = (p2.y - p2.oldY) - (p1.y - p1.oldY);
+                    const rvz = (p2.z - p2.oldZ) - (p1.z - p1.oldZ);
+                    const rvDotN = (rvx * dx + rvy * dy + rvz * dz) / (dist * dist);
+                    diffX += dx * rvDotN * springDamp;
+                    diffY += dy * rvDotN * springDamp;
+                    diffZ += dz * rvDotN * springDamp;
+                }
+
+                const mc = 0.2;
                 diffX = Math.max(-mc, Math.min(mc, diffX));
                 diffY = Math.max(-mc, Math.min(mc, diffY));
                 diffZ = Math.max(-mc, Math.min(mc, diffZ));
                 p1.x += diffX * (w1 / wSum); p1.y += diffY * (w1 / wSum); p1.z += diffZ * (w1 / wSum);
                 p2.x -= diffX * (w2 / wSum); p2.y -= diffY * (w2 / wSum); p2.z -= diffZ * (w2 / wSum);
             }
-        }
-    }
 
-    // ================= 自碰撞 =================
-    if (collisionEnabled) {
-        const collisionIters = parseInt(collisionItersSlider.value);
-        const iters = lockedIndices.size > 0 ? 1 : collisionIters;
-        for (let ci = 0; ci < iters; ci++) {
-            this.solveCollision(lockedIndices);
+            // ===== 弯曲弹簧（不参与撕裂与塑性）=====
+            if (bendK > 0.001 && this.bendSprings.length) {
+                for (const s of this.bendSprings) {
+                    if (s.broken) continue;
+                    const p1 = this.particles[s.i], p2 = this.particles[s.j];
+                    const dx = p2.x - p1.x, dy = p2.y - p1.y, dz = p2.z - p1.z;
+                    const dist = Math.hypot(dx, dy, dz);
+                    if (dist === 0) continue;
+                    const w1 = (p1.pinned || lockedIndices.has(s.i)) ? 0 : p1.invMass;
+                    const w2 = (p2.pinned || lockedIndices.has(s.j)) ? 0 : p2.invMass;
+                    const wSum = w1 + w2;
+                    if (wSum === 0) continue;
+                    // 🟢 核心修复：极弱化弯曲力，使得布料弯曲变得极其柔顺（圆弧状）
+                    const diff = (dist - s.restLength) / dist * bendK * 0.05;
+                    let diffX = dx * diff, diffY = dy * diff, diffZ = dz * diff;
+                    const mc = 0.1;
+                    diffX = Math.max(-mc, Math.min(mc, diffX));
+                    diffY = Math.max(-mc, Math.min(mc, diffY));
+                    diffZ = Math.max(-mc, Math.min(mc, diffZ));
+                    p1.x += diffX * (w1 / wSum); p1.y += diffY * (w1 / wSum); p1.z += diffZ * (w1 / wSum);
+                    p2.x -= diffX * (w2 / wSum); p2.y -= diffY * (w2 / wSum); p2.z -= diffZ * (w2 / wSum);
+                }
+            }
+        }
+
+        // ================= 自碰撞 =================
+        if (collisionEnabled) {
+            const collisionIters = parseInt(collisionItersSlider.value);
+            const iters = lockedIndices.size > 0 ? 1 : collisionIters;
+            for (let ci = 0; ci < iters; ci++) {
+                this.solveCollision(lockedIndices);
+            }
         }
     }
 
