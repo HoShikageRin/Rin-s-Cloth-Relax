@@ -619,175 +619,197 @@ const physicsExtraDefaults = {
     collFric: 0.6, dragStr: 0.4, airExp: 0.2, maxVel: 0.20, velRet: 1.0
 };
 
-// ==============================================================
-// 🟢 修复 1：全新的物理预设参数（针对蜷缩和抖动）
-// ==============================================================
 const physicsPresets = {
+    // ================= 日常柔软布料 =================
     cotton: {
-        stiffness: 0.45, maxStretch: 1.5, damping: 0.07, mass: 25.0, meshRes: 24, maxDrag: 0.6, iterations: 6, hz: 100,
+        // 基础棉布：重量适中，容易产生自然的垂坠感
+        stiffness: 0.5, maxStretch: 1.3, damping: 0.05, mass: 30.0, meshRes: 24, maxDrag: 0.6, iterations: 8, hz: 100,
         plasticity: false, plRate: 0.05, plThreshold: 1.05, plRecovery: 0.001, plMax: 2.0,
-        bend: 0.15, shear: 1.0, stiffX: 1.0, stiffY: 1.0, springDamp: 0.02,
+        bend: 0.25, shear: 1.0, stiffX: 1.0, stiffY: 1.0, springDamp: 0.02,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
-        collFric: 0.6, dragStr: 0.40, airExp: 0.20, maxVel: 0.20, velRet: 1.0
+        collFric: 0.6, dragStr: 0.40, airExp: 0.20, maxVel: 0.30, velRet: 1.0
     },
     washed_cotton: {
-        stiffness: 0.35, maxStretch: 1.6, damping: 0.08, mass: 30.0, meshRes: 24, maxDrag: 0.7, iterations: 6, hz: 100,
+        // 水洗棉：比普通棉布更软，拉伸性更好
+        stiffness: 0.35, maxStretch: 1.4, damping: 0.06, mass: 35.0, meshRes: 24, maxDrag: 0.7, iterations: 8, hz: 100,
         plasticity: false, plRate: 0.08, plThreshold: 1.03, plRecovery: 0.002, plMax: 2.5,
-        bend: 0.10, shear: 0.9, stiffX: 1.0, stiffY: 1.0, springDamp: 0.02,
+        bend: 0.15, shear: 0.9, stiffX: 1.0, stiffY: 1.0, springDamp: 0.02,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
-        collFric: 0.6, dragStr: 0.45, airExp: 0.20, maxVel: 0.20, velRet: 1.0
-    },
-    polyester: {
-        stiffness: 0.8, maxStretch: 1.1, damping: 0.08, mass: 20.0, meshRes: 28, maxDrag: 0.4, iterations: 6, hz: 100,
-        plasticity: false, plRate: 0.02, plThreshold: 1.10, plRecovery: 0.005, plMax: 1.5,
-        bend: 0.35, shear: 1.3, stiffX: 1.2, stiffY: 1.2, springDamp: 0.03,
-        windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
-        collFric: 0.6, dragStr: 0.35, airExp: 0.22, maxVel: 0.18, velRet: 1.0
-    },
-    tr_blend: {
-        stiffness: 0.6, maxStretch: 1.25, damping: 0.09, mass: 35.0, meshRes: 26, maxDrag: 0.5, iterations: 6, hz: 100,
-        plasticity: false, plRate: 0.04, plThreshold: 1.08, plRecovery: 0.003, plMax: 1.8,
-        bend: 0.25, shear: 1.15, stiffX: 1.1, stiffY: 1.0, springDamp: 0.03,
-        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
-        collFric: 0.6, dragStr: 0.40, airExp: 0.20, maxVel: 0.20, velRet: 1.0
-    },
-    worsted_wool: {
-        stiffness: 0.85, maxStretch: 1.1, damping: 0.12, mass: 70.0, meshRes: 32, maxDrag: 0.3, iterations: 5, hz: 110,
-        plasticity: false, plRate: 0.06, plThreshold: 1.03, plRecovery: 0.001, plMax: 2.0,
-        bend: 0.50, shear: 1.5, stiffX: 1.5, stiffY: 1.2, springDamp: 0.05,
-        windSpatial: 4.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.85,
-        collFric: 0.65, dragStr: 0.30, airExp: 0.25, maxVel: 0.16, velRet: 1.0
-    },
-    denim: {
-        // 🟢 优化：降低刚度，提升迭代与阻尼，解决抖动
-        stiffness: 0.65, maxStretch: 1.1, damping: 0.15, mass: 40.0, meshRes: 32, maxDrag: 0.4, iterations: 8, hz: 120,
-        plasticity: false, plRate: 0.03, plThreshold: 1.05, plRecovery: 0.002, plMax: 1.8,
-        bend: 0.30, shear: 1.2, stiffX: 1.1, stiffY: 1.0, springDamp: 0.1,
-        windSpatial: 4.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.85,
-        collFric: 0.70, dragStr: 0.30, airExp: 0.28, maxVel: 0.15, velRet: 1.0
-    },
-    leather: {
-        // 🟢 优化：降低质量，放宽拉伸，防止重力蜷缩
-        stiffness: 0.7, maxStretch: 1.15, damping: 0.15, mass: 35.0, meshRes: 36, maxDrag: 0.4, iterations: 8, hz: 120,
-        plasticity: true, plRate: 0.04, plThreshold: 1.1, plRecovery: 0.001, plMax: 2.5,
-        bend: 0.25, shear: 1.4, stiffX: 1.2, stiffY: 1.2, springDamp: 0.1,
-        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.9,
-        collFric: 0.75, dragStr: 0.28, airExp: 0.30, maxVel: 0.15, velRet: 1.0
-    },
-    rubber: {
-        stiffness: 0.15, maxStretch: 3.0, damping: 0.04, mass: 10.0, meshRes: 20, maxDrag: 2.0, iterations: 15, hz: 120,
-        plasticity: false, plRate: 0.001, plThreshold: 2.5, plRecovery: 0.05, plMax: 1.1,
-        bend: 0.05, shear: 0.3, stiffX: 1.0, stiffY: 1.0, springDamp: 0.15,
-        windSpatial: 3.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.7,
-        collFric: 0.50, dragStr: 0.50, airExp: 0.15, maxVel: 0.30, velRet: 1.0
-    },
-    silk: {
-        stiffness: 0.25, maxStretch: 1.8, damping: 0.06, mass: 5.0, meshRes: 40, maxDrag: 0.8, iterations: 8, hz: 100,
-        plasticity: false, plRate: 0.02, plThreshold: 1.15, plRecovery: 0.005, plMax: 1.5,
-        bend: 0.02, shear: 0.6, stiffX: 1.0, stiffY: 1.0, springDamp: 0.01,
-        windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.5,
-        collFric: 0.40, dragStr: 0.50, airExp: 0.15, maxVel: 0.25, velRet: 1.0
+        collFric: 0.6, dragStr: 0.45, airExp: 0.20, maxVel: 0.32, velRet: 1.0
     },
     linen: {
-        stiffness: 0.75, maxStretch: 1.15, damping: 0.08, mass: 15.0, meshRes: 26, maxDrag: 0.5, iterations: 6, hz: 100,
+        // 亚麻：稍微有点清脆的骨架感，但依然柔软
+        stiffness: 0.7, maxStretch: 1.15, damping: 0.06, mass: 25.0, meshRes: 26, maxDrag: 0.5, iterations: 8, hz: 100,
         plasticity: false, plRate: 0.05, plThreshold: 1.05, plRecovery: 0.002, plMax: 2.0,
-        bend: 0.30, shear: 1.2, stiffX: 1.3, stiffY: 1.0, springDamp: 0.03,
+        bend: 0.35, shear: 1.2, stiffX: 1.3, stiffY: 1.0, springDamp: 0.03,
         windSpatial: 4.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.85,
-        collFric: 0.65, dragStr: 0.40, airExp: 0.22, maxVel: 0.18, velRet: 1.0
-    },
-    chiffon: {
-        stiffness: 0.2, maxStretch: 1.4, damping: 0.05, mass: 2.0, meshRes: 48, maxDrag: 1.0, iterations: 10, hz: 100,
-        plasticity: false, plRate: 0.01, plThreshold: 1.20, plRecovery: 0.010, plMax: 1.3,
-        bend: 0.0, shear: 0.5, stiffX: 1.0, stiffY: 1.0, springDamp: 0.02,
-        windSpatial: 6.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.4,
-        collFric: 0.35, dragStr: 0.55, airExp: 0.10, maxVel: 0.28, velRet: 1.0
-    },
-    canvas: {
-        // 🟢 优化：降低刚度，提升迭代与阻尼，解决抖动
-        stiffness: 0.65, maxStretch: 1.1, damping: 0.15, mass: 50.0, meshRes: 40, maxDrag: 0.3, iterations: 8, hz: 120,
-        plasticity: false, plRate: 0.06, plThreshold: 1.03, plRecovery: 0.001, plMax: 2.0,
-        bend: 0.35, shear: 1.2, stiffX: 1.1, stiffY: 1.1, springDamp: 0.1,
-        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.9,
-        collFric: 0.70, dragStr: 0.28, airExp: 0.30, maxVel: 0.15, velRet: 1.0
+        collFric: 0.65, dragStr: 0.40, airExp: 0.22, maxVel: 0.25, velRet: 1.0
     },
     wool: {
-        stiffness: 0.65, maxStretch: 1.2, damping: 0.09, mass: 45.0, meshRes: 32, maxDrag: 0.5, iterations: 6, hz: 100,
+        // 羊毛：偏厚重，有厚实感
+        stiffness: 0.65, maxStretch: 1.15, damping: 0.08, mass: 55.0, meshRes: 32, maxDrag: 0.5, iterations: 8, hz: 100,
         plasticity: false, plRate: 0.05, plThreshold: 1.05, plRecovery: 0.002, plMax: 2.0,
         bend: 0.40, shear: 1.3, stiffX: 1.2, stiffY: 1.1, springDamp: 0.04,
         windSpatial: 4.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.85,
-        collFric: 0.65, dragStr: 0.35, airExp: 0.25, maxVel: 0.18, velRet: 1.0
+        collFric: 0.65, dragStr: 0.35, airExp: 0.25, maxVel: 0.28, velRet: 1.0
     },
     velvet: {
-        stiffness: 0.5, maxStretch: 1.3, damping: 0.08, mass: 50.0, meshRes: 36, maxDrag: 0.6, iterations: 7, hz: 100,
+        // 天鹅绒：极度垂坠、有光泽、密实
+        stiffness: 0.55, maxStretch: 1.2, damping: 0.07, mass: 60.0, meshRes: 36, maxDrag: 0.6, iterations: 8, hz: 100,
         plasticity: false, plRate: 0.08, plThreshold: 1.08, plRecovery: 0.003, plMax: 2.5,
         bend: 0.20, shear: 0.9, stiffX: 1.1, stiffY: 1.0, springDamp: 0.04,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
-        collFric: 0.60, dragStr: 0.40, airExp: 0.22, maxVel: 0.20, velRet: 1.0
+        collFric: 0.60, dragStr: 0.40, airExp: 0.22, maxVel: 0.26, velRet: 1.0
     },
-    silicone: {
-        stiffness: 0.8, maxStretch: 1.2, damping: 0.15, mass: 100.0, meshRes: 30, maxDrag: 1.2, iterations: 8, hz: 120,
-        plasticity: false, plRate: 0.001, plThreshold: 2.0, plRecovery: 0.04, plMax: 1.2,
-        bend: 0.15, shear: 0.5, stiffX: 1.0, stiffY: 1.0, springDamp: 0.20,
-        windSpatial: 3.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.7,
-        collFric: 0.55, dragStr: 0.45, airExp: 0.25, maxVel: 0.20, velRet: 1.0
+    worsted_wool: {
+        // 精纺毛呢：非常紧密、厚重、挺括
+        stiffness: 0.8, maxStretch: 1.1, damping: 0.1, mass: 85.0, meshRes: 32, maxDrag: 0.3, iterations: 8, hz: 110,
+        plasticity: false, plRate: 0.06, plThreshold: 1.03, plRecovery: 0.001, plMax: 2.0,
+        bend: 0.55, shear: 1.5, stiffX: 1.5, stiffY: 1.2, springDamp: 0.05,
+        windSpatial: 4.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.85,
+        collFric: 0.65, dragStr: 0.30, airExp: 0.25, maxVel: 0.25, velRet: 1.0
     },
-    metal: {
-        // 🟢 优化：质量大减，放宽拉伸，防止蜷缩
-        stiffness: 0.75, maxStretch: 1.15, damping: 0.2, mass: 50.0, meshRes: 32, maxDrag: 0.2, iterations: 8, hz: 120,
-        plasticity: true, plRate: 0.05, plThreshold: 1.1, plRecovery: 0.001, plMax: 1.5,
-        bend: 0.35, shear: 1.6, stiffX: 1.2, stiffY: 1.2, springDamp: 0.12,
-        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
-        collFric: 0.80, dragStr: 0.25, airExp: 0.35, maxVel: 0.15, velRet: 1.0
+    tr_blend: {
+        // TR混纺：日常西装面料，有一定骨架
+        stiffness: 0.6, maxStretch: 1.2, damping: 0.07, mass: 40.0, meshRes: 26, maxDrag: 0.5, iterations: 8, hz: 100,
+        plasticity: false, plRate: 0.04, plThreshold: 1.08, plRecovery: 0.003, plMax: 1.8,
+        bend: 0.3, shear: 1.15, stiffX: 1.1, stiffY: 1.0, springDamp: 0.03,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
+        collFric: 0.6, dragStr: 0.40, airExp: 0.20, maxVel: 0.28, velRet: 1.0
     },
-    paper: {
-        stiffness: 0.6, maxStretch: 1.02, damping: 0.05, mass: 2.0, meshRes: 16, maxDrag: 0.2, iterations: 4, hz: 60,
-        plasticity: true, plRate: 0.25, plThreshold: 1.01, plRecovery: 0, plMax: 2.0,
-        bend: 0.90, shear: 2.0, stiffX: 1.3, stiffY: 1.0, springDamp: 0.10,
-        windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.6,
-        collFric: 0.50, dragStr: 0.30, airExp: 0.15, maxVel: 0.20, velRet: 1.0
+    polyester: {
+        // 涤纶：顺滑、微弹、不重
+        stiffness: 0.7, maxStretch: 1.25, damping: 0.06, mass: 25.0, meshRes: 28, maxDrag: 0.4, iterations: 8, hz: 100,
+        plasticity: false, plRate: 0.02, plThreshold: 1.10, plRecovery: 0.005, plMax: 1.5,
+        bend: 0.35, shear: 1.3, stiffX: 1.2, stiffY: 1.2, springDamp: 0.03,
+        windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
+        collFric: 0.6, dragStr: 0.35, airExp: 0.22, maxVel: 0.30, velRet: 1.0
     },
-    neoprene: {
-        stiffness: 0.35, maxStretch: 2.2, damping: 0.12, mass: 50.0, meshRes: 24, maxDrag: 1.0, iterations: 8, hz: 100,
-        plasticity: false, plRate: 0.02, plThreshold: 1.5, plRecovery: 0.02, plMax: 1.5,
-        bend: 0.40, shear: 0.8, stiffX: 1.0, stiffY: 1.0, springDamp: 0.15,
-        windSpatial: 3.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
-        collFric: 0.60, dragStr: 0.45, airExp: 0.22, maxVel: 0.22, velRet: 1.0
-    },
-    plastic: {
-        stiffness: 0.4, maxStretch: 1.6, damping: 0.03, mass: 5.0, meshRes: 28, maxDrag: 1.5, iterations: 10, hz: 100,
-        plasticity: true, plRate: 0.12, plThreshold: 1.10, plRecovery: 0.001, plMax: 3.0,
-        bend: 0.10, shear: 0.4, stiffX: 1.0, stiffY: 1.0, springDamp: 0.02,
+
+    // ================= 极致轻薄的轻纱 =================
+    silk: {
+        // 丝绸：极轻，极滑，随风飘荡
+        stiffness: 0.3, maxStretch: 1.5, damping: 0.03, mass: 8.0, meshRes: 40, maxDrag: 0.8, iterations: 10, hz: 100,
+        plasticity: false, plRate: 0.02, plThreshold: 1.15, plRecovery: 0.005, plMax: 1.5,
+        bend: 0.05, shear: 0.6, stiffX: 1.0, stiffY: 1.0, springDamp: 0.01,
         windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.5,
-        collFric: 0.40, dragStr: 0.50, airExp: 0.12, maxVel: 0.28, velRet: 1.0
+        collFric: 0.40, dragStr: 0.50, airExp: 0.15, maxVel: 0.35, velRet: 1.0
     },
-    metalsheet: {
-        // 🟢 优化：质量大减，放宽拉伸，防止蜷缩
-        stiffness: 0.8, maxStretch: 1.15, damping: 0.25, mass: 60.0, meshRes: 18, maxDrag: 0.2, iterations: 8, hz: 120,
-        plasticity: true, plRate: 0.03, plThreshold: 1.1, plRecovery: 0, plMax: 2.5,
-        bend: 0.35, shear: 1.5, stiffX: 1.2, stiffY: 1.2, springDamp: 0.12,
-        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
-        collFric: 0.80, dragStr: 0.22, airExp: 0.35, maxVel: 0.15, velRet: 1.0
-    },
-    jelly: {
-        stiffness: 0.1, maxStretch: 2.8, damping: 0.02, mass: 90.0, meshRes: 24, maxDrag: 2.5, iterations: 15, hz: 120,
-        plasticity: false, plRate: 0.001, plThreshold: 2.5, plRecovery: 0.06, plMax: 1.1,
-        bend: 0.05, shear: 0.2, stiffX: 1.0, stiffY: 1.0, springDamp: 0.25,
-        windSpatial: 3.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.5,
-        collFric: 0.45, dragStr: 0.55, airExp: 0.10, maxVel: 0.32, velRet: 1.0
+    chiffon: {
+        // 雪纺：极度轻盈透气
+        stiffness: 0.25, maxStretch: 1.4, damping: 0.02, mass: 4.0, meshRes: 48, maxDrag: 1.0, iterations: 10, hz: 100,
+        plasticity: false, plRate: 0.01, plThreshold: 1.20, plRecovery: 0.010, plMax: 1.3,
+        bend: 0.02, shear: 0.5, stiffX: 1.0, stiffY: 1.0, springDamp: 0.02,
+        windSpatial: 6.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.4,
+        collFric: 0.35, dragStr: 0.55, airExp: 0.10, maxVel: 0.40, velRet: 1.0
     },
     spidersilk: {
-        stiffness: 0.15, maxStretch: 3.0, damping: 0.04, mass: 0.5, meshRes: 60, maxDrag: 3.0, iterations: 12, hz: 100,
+        // 蛛丝：几乎没重量，弹性极大
+        stiffness: 0.2, maxStretch: 2.5, damping: 0.01, mass: 1.0, meshRes: 60, maxDrag: 3.0, iterations: 12, hz: 100,
         plasticity: false, plRate: 0.005, plThreshold: 1.3, plRecovery: 0.010, plMax: 1.5,
         bend: 0.0, shear: 0.3, stiffX: 1.0, stiffY: 1.0, springDamp: 0.005,
         windSpatial: 7.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.3,
-        collFric: 0.30, dragStr: 0.60, airExp: 0.05, maxVel: 0.30, velRet: 1.0
+        collFric: 0.30, dragStr: 0.60, airExp: 0.05, maxVel: 0.45, velRet: 1.0
+    },
+
+    // ================= 厚重、硬挺、有质感 =================
+    denim: {
+        // 牛仔：沉甸甸的，拉扯时阻力极大，高阻尼防抖
+        stiffness: 0.8, maxStretch: 1.1, damping: 0.12, mass: 75.0, meshRes: 32, maxDrag: 0.4, iterations: 10, hz: 120,
+        plasticity: false, plRate: 0.03, plThreshold: 1.05, plRecovery: 0.002, plMax: 1.8,
+        bend: 0.55, shear: 1.3, stiffX: 1.2, stiffY: 1.1, springDamp: 0.06,
+        windSpatial: 4.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.9,
+        collFric: 0.70, dragStr: 0.30, airExp: 0.28, maxVel: 0.25, velRet: 1.0
+    },
+    canvas: {
+        // 帆布：最厚重的日常布料，极度挺括，像帐篷
+        stiffness: 0.9, maxStretch: 1.05, damping: 0.12, mass: 100.0, meshRes: 40, maxDrag: 0.3, iterations: 10, hz: 120,
+        plasticity: false, plRate: 0.06, plThreshold: 1.03, plRecovery: 0.001, plMax: 2.0,
+        bend: 0.7, shear: 1.4, stiffX: 1.3, stiffY: 1.3, springDamp: 0.08,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
+        collFric: 0.70, dragStr: 0.28, airExp: 0.30, maxVel: 0.22, velRet: 1.0
+    },
+    leather: {
+        // 皮革：非常重，有柔韧性但不易变形，有极度真实的塑性（拉扯后不会完全弹回）
+        stiffness: 0.85, maxStretch: 1.15, damping: 0.15, mass: 90.0, meshRes: 36, maxDrag: 0.4, iterations: 10, hz: 120,
+        plasticity: true, plRate: 0.05, plThreshold: 1.1, plRecovery: 0.0005, plMax: 2.5,
+        bend: 0.6, shear: 1.4, stiffX: 1.3, stiffY: 1.3, springDamp: 0.1,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.9,
+        collFric: 0.75, dragStr: 0.28, airExp: 0.30, maxVel: 0.25, velRet: 1.0
+    },
+    metal: {
+        // 金属丝网：重且硬，下坠感极强
+        stiffness: 0.95, maxStretch: 1.1, damping: 0.2, mass: 120.0, meshRes: 32, maxDrag: 0.2, iterations: 10, hz: 120,
+        plasticity: true, plRate: 0.05, plThreshold: 1.1, plRecovery: 0.001, plMax: 1.5,
+        bend: 0.65, shear: 1.6, stiffX: 1.2, stiffY: 1.2, springDamp: 0.15,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
+        collFric: 0.80, dragStr: 0.25, airExp: 0.35, maxVel: 0.20, velRet: 1.0
+    },
+    metalsheet: {
+        // 铁皮：极重，不可拉伸，砸在地上会有硬碰硬的反馈
+        stiffness: 1.0, maxStretch: 1.05, damping: 0.25, mass: 150.0, meshRes: 20, maxDrag: 0.2, iterations: 12, hz: 120,
+        plasticity: true, plRate: 0.03, plThreshold: 1.1, plRecovery: 0, plMax: 2.5,
+        bend: 0.8, shear: 1.8, stiffX: 1.4, stiffY: 1.4, springDamp: 0.2,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
+        collFric: 0.80, dragStr: 0.22, airExp: 0.35, maxVel: 0.18, velRet: 1.0
+    },
+
+    // ================= 特殊材质 =================
+    rubber: {
+        // 橡胶：重，但是极度拉伸，能拉长好几倍
+        stiffness: 0.2, maxStretch: 2.8, damping: 0.08, mass: 60.0, meshRes: 24, maxDrag: 2.0, iterations: 12, hz: 120,
+        plasticity: false, plRate: 0.001, plThreshold: 2.5, plRecovery: 0.05, plMax: 1.1,
+        bend: 0.1, shear: 0.4, stiffX: 1.0, stiffY: 1.0, springDamp: 0.15,
+        windSpatial: 3.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
+        collFric: 0.50, dragStr: 0.50, airExp: 0.15, maxVel: 0.40, velRet: 1.0
+    },
+    silicone: {
+        // 硅胶布：非常重，有肉感，但不怎么变形
+        stiffness: 0.9, maxStretch: 1.1, damping: 0.18, mass: 110.0, meshRes: 30, maxDrag: 1.2, iterations: 10, hz: 120,
+        plasticity: false, plRate: 0.001, plThreshold: 2.0, plRecovery: 0.04, plMax: 1.2,
+        bend: 0.25, shear: 0.6, stiffX: 1.0, stiffY: 1.0, springDamp: 0.20,
+        windSpatial: 3.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
+        collFric: 0.55, dragStr: 0.45, airExp: 0.25, maxVel: 0.22, velRet: 1.0
+    },
+    neoprene: {
+        // 潜水料：厚重且具有极强的弹性
+        stiffness: 0.45, maxStretch: 1.8, damping: 0.12, mass: 70.0, meshRes: 24, maxDrag: 1.0, iterations: 10, hz: 100,
+        plasticity: false, plRate: 0.02, plThreshold: 1.5, plRecovery: 0.02, plMax: 1.5,
+        bend: 0.5, shear: 0.8, stiffX: 1.0, stiffY: 1.0, springDamp: 0.15,
+        windSpatial: 3.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
+        collFric: 0.60, dragStr: 0.45, airExp: 0.22, maxVel: 0.28, velRet: 1.0
+    },
+    paper: {
+        // 纸张：极轻，高刚性，一搓就皱（极大的塑性）
+        stiffness: 0.7, maxStretch: 1.02, damping: 0.08, mass: 5.0, meshRes: 16, maxDrag: 0.2, iterations: 6, hz: 80,
+        plasticity: true, plRate: 0.25, plThreshold: 1.01, plRecovery: 0, plMax: 2.0,
+        bend: 0.85, shear: 2.0, stiffX: 1.3, stiffY: 1.0, springDamp: 0.10,
+        windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.7,
+        collFric: 0.50, dragStr: 0.30, airExp: 0.15, maxVel: 0.25, velRet: 1.0
+    },
+    plastic: {
+        // 塑料薄膜：极轻，微弹，易飘
+        stiffness: 0.4, maxStretch: 1.6, damping: 0.02, mass: 8.0, meshRes: 28, maxDrag: 1.5, iterations: 10, hz: 100,
+        plasticity: true, plRate: 0.12, plThreshold: 1.10, plRecovery: 0.001, plMax: 3.0,
+        bend: 0.15, shear: 0.4, stiffX: 1.0, stiffY: 1.0, springDamp: 0.02,
+        windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.6,
+        collFric: 0.40, dragStr: 0.50, airExp: 0.12, maxVel: 0.35, velRet: 1.0
     },
     clingfilm: {
-        stiffness: 0.5, maxStretch: 2.5, damping: 0.01, mass: 1.0, meshRes: 30, maxDrag: 2.0, iterations: 12, hz: 120,
+        // 保鲜膜：轻，容易粘连（自碰撞摩擦极高），极易拉伸
+        stiffness: 0.6, maxStretch: 2.2, damping: 0.03, mass: 3.0, meshRes: 30, maxDrag: 2.0, iterations: 12, hz: 120,
         plasticity: false, plRate: 0.03, plThreshold: 1.8, plRecovery: 0.005, plMax: 2.0,
-        bend: 0.10, shear: 0.5, stiffX: 1.0, stiffY: 1.0, springDamp: 0.03,
+        bend: 0.1, shear: 0.5, stiffX: 1.0, stiffY: 1.0, springDamp: 0.03,
         windSpatial: 6.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
-        collFric: 0.85, dragStr: 0.50, airExp: 0.10, maxVel: 0.28, velRet: 1.0
+        collFric: 0.95, dragStr: 0.50, airExp: 0.10, maxVel: 0.30, velRet: 1.0
+    },
+    jelly: {
+        // 果冻：重，低摩擦，duang duang的
+        stiffness: 0.15, maxStretch: 2.5, damping: 0.05, mass: 100.0, meshRes: 24, maxDrag: 2.5, iterations: 15, hz: 120,
+        plasticity: false, plRate: 0.001, plThreshold: 2.5, plRecovery: 0.06, plMax: 1.1,
+        bend: 0.05, shear: 0.2, stiffX: 1.0, stiffY: 1.0, springDamp: 0.15,
+        windSpatial: 3.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.5,
+        collFric: 0.45, dragStr: 0.55, airExp: 0.10, maxVel: 0.35, velRet: 1.0
     }
 };
 
@@ -803,7 +825,8 @@ const materialPresets = {
     cotton: { light: 0.5, rough: 1.0, metal: 0.0, flat: false, opacity: 1.0, trans: 0, clear: 0, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.4, sheenCol: "#ffffff", sheenRough: 0.8 },
     silk: { light: 0.6, rough: 0.15, metal: 0.2, flat: false, opacity: 0.8, trans: 0, clear: 0.6, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.8, sheenCol: "#ffffff", sheenRough: 0.2 },
     metal: { light: 0.8, rough: 0.4, metal: 1.0, flat: false, opacity: 1.0, trans: 0, clear: 0.2, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0, sheenCol: "#ffffff", sheenRough: 0.5 },
-    leather: { light: 0.35, rough: 0.95, metal: 0.0, flat: false, opacity: 1.0, trans: 0, clear: 0.3, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0, sheenCol: "#ffffff", sheenRough: 0.5 },
+    // 将 clear 改为 0，消除高光膜。适当增加 light 和 sheen，让皮革有真实的哑光和微绒感。
+leather: { light: 0.4, rough: 0.95, metal: 0.0, flat: false, opacity: 1.0, trans: 0, clear: 0.0, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.1, sheenCol: "#ffffff", sheenRough: 0.8 },
     holographic: { light: 1.0, rough: 0.1, metal: 0.9, flat: false, opacity: 0.7, trans: 0, clear: 1.0, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 1.0, iridIor: 1.6, sheen: 0, sheenCol: "#ffffff", sheenRough: 0.5 },
     gauze: { light: 0.6, rough: 0.85, metal: 0.1, flat: false, opacity: 0.35, trans: 0.5, clear: 0, ior: 1.5, thick: 0.1, atten: 2, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.3, sheenCol: "#ffffff", sheenRough: 0.8 },
     chiffon: { light: 0.7, rough: 0.2, metal: 0.2, flat: false, opacity: 0.5, trans: 0.4, clear: 0.2, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.6, sheenCol: "#ffffff", sheenRough: 0.4 },
@@ -5918,7 +5941,14 @@ for (let j = 0; j <= resY; j++) {
         this.mesh.receiveShadow = shadowEnabled;
 
         this.collisionGrid = new Map();
+                // 🟢 新增：碰撞网格复用池，避免每帧新建数组导致GC卡顿
+        this.cellPool = [];
+        this.cellPoolIndex = 0;
         this.collisionFrameCount = 0;
+
+     // 🟢 新增：碰撞网格复用池，避免每帧新建数组导致GC卡顿
+        this.cellPool = [];
+        this.cellPoolIndex = 0;
     }
 
 addSpring(i, j, type = 'structural', axis = 'd') {
@@ -5979,30 +6009,20 @@ addBendSpring(i, j) {
         }
     }
 
-    solveCollision(lockedIndices) {
+        // 🟢 优化：单独抽出建表步骤，每个子步只建一次
+    buildCollisionGrid() {
         const pLen = this.particles.length;
         if (pLen === 0) return;
-
-        const decorMap = new Map();
-        decorations.forEach(d => decorMap.set(d.particleIndex, d.weight));
-
+        
         const baseRadius = this.baseRestLength * parseFloat(collisionRadiusSlider.value);
-        const getRadius = (idx) => {
-            let r = baseRadius;
-            if (decorMap.has(idx)) {
-                const w = decorMap.get(idx);
-                // 🔧 调低排斥半径，避免布料被撑得过开
-                if (w === 'heavy') r *= 1.5; 
-                else if (w === 'light') r *= 1.15;
-                else r *= 1.2; 
-            }
-            return r;
-        };
-
-        const cellSize = baseRadius * 3;
+        const cellSize = baseRadius * 2.5; 
         const invCellSize = 1.0 / cellSize;
 
         const gridMap = this.collisionGrid;
+        for (let i = 0; i < this.cellPoolIndex; i++) {
+            this.cellPool[i].length = 0; 
+        }
+        this.cellPoolIndex = 0;
         gridMap.clear();
 
         for (let i = 0; i < pLen; i++) {
@@ -6010,14 +6030,41 @@ addBendSpring(i, j) {
             const cx = Math.floor(p.x * invCellSize);
             const cy = Math.floor(p.y * invCellSize);
             const cz = Math.floor(p.z * invCellSize);
-            const hash = (cx * 73856093) ^ (cy * 19349663) ^ (cz * 83492791);
+            const hash = (cx * 92837111) ^ (cy * 689287499) ^ (cz * 283923481); 
+            
             let cell = gridMap.get(hash);
             if (!cell) {
-                cell = [];
+                if (this.cellPoolIndex < this.cellPool.length) {
+                    cell = this.cellPool[this.cellPoolIndex++];
+                } else {
+                    cell = [];
+                    this.cellPool.push(cell);
+                    this.cellPoolIndex++;
+                }
                 gridMap.set(hash, cell);
             }
             cell.push(i);
         }
+        
+        // 缓存参数供 solveCollision 使用
+        this._currentBaseRadius = baseRadius;
+        this._currentInvCellSize = invCellSize;
+    }
+
+    // 🟢 优化：只负责查表和排斥计算，性能极快
+    solveCollision(lockedIndices) {
+        const pLen = this.particles.length;
+        if (pLen === 0) return;
+
+        const decorMap = this.decorCollisionMap || (this.decorCollisionMap = new Map());
+        if (this.collisionFrameCount === 0) {
+            decorMap.clear();
+            decorations.forEach(d => decorMap.set(d.particleIndex, d.weight));
+        }
+
+        const baseRadius = this._currentBaseRadius;
+        const invCellSize = this._currentInvCellSize;
+        const gridMap = this.collisionGrid;
 
         for (let i = 0; i < pLen; i++) {
             const p1 = this.particles[i];
@@ -6028,13 +6075,13 @@ addBendSpring(i, j) {
             for (let ox = -1; ox <= 1; ox++) {
                 for (let oy = -1; oy <= 1; oy++) {
                     for (let oz = -1; oz <= 1; oz++) {
-                        const hash = ((cx + ox) * 73856093) ^ ((cy + oy) * 19349663) ^ ((cz + oz) * 83492791);
+                        const hash = ((cx + ox) * 92837111) ^ ((cy + oy) * 689287499) ^ ((cz + oz) * 283923481);
                         const cell = gridMap.get(hash);
                         if (!cell) continue;
 
-                        for (let k = 0; k < cell.length; k++) {
+                        for (let k = 0, cLen = cell.length; k < cLen; k++) {
                             const j = cell[k];
-                            if (j <= i) continue;
+                            if (j <= i) continue; 
 
                             const p2 = this.particles[j];
                             if (Math.abs(p1.ix - p2.ix) <= 1 && Math.abs(p1.iy - p2.iy) <= 1) continue;
@@ -6048,21 +6095,16 @@ addBendSpring(i, j) {
                             const dz = p2.z - p1.z;
                             const d2 = dx * dx + dy * dy + dz * dz;
 
-                            const r1 = getRadius(i);
-                            const r2 = getRadius(j);
-                            const currentRadius = Math.max(r1, r2);
+                            const r1 = decorMap.has(i) ? baseRadius * (decorMap.get(i)==='heavy'?1.5:1.2) : baseRadius;
+                            const r2 = decorMap.has(j) ? baseRadius * (decorMap.get(j)==='heavy'?1.5:1.2) : baseRadius;
+                            const currentRadius = r1 > r2 ? r1 : r2;
 
                             if (d2 < currentRadius * currentRadius) {
-                                let d = Math.sqrt(d2) || 0.001;
-                                let nx = dx / d, ny = dy / d, nz = dz / d;
+                                const d = Math.sqrt(d2) || 0.001;
+                                const nx = dx / d, ny = dy / d, nz = dz / d;
 
-                                // 限制单次推开的最大距离，防止瞬间弹飞
                                 const overlapDist = currentRadius - d;
-                                const maxPush = currentRadius * 0.25;
-                                const pushAmount = Math.min(overlapDist, maxPush) * parseFloat(collisionForceSlider.value);
-
-                                if (decorMap.get(i) === 'heavy') p1.z -= pushAmount * 0.5;
-                                if (decorMap.get(j) === 'heavy') p2.z -= pushAmount * 0.5;
+                                const pushAmount = Math.min(overlapDist, currentRadius * 0.25) * parseFloat(collisionForceSlider.value);
 
                                 const w1 = (p1.pinned || isP1Locked) ? 0 : p1.invMass;
                                 const w2 = (p2.pinned || isP2Locked) ? 0 : p2.invMass;
@@ -6072,11 +6114,9 @@ addBendSpring(i, j) {
                                 const move1 = pushAmount * (w1 / wSum);
                                 const move2 = pushAmount * (w2 / wSum);
 
-                                // 移动位置
                                 p1.x -= nx * move1; p1.y -= ny * move1; p1.z -= nz * move1;
                                 p2.x += nx * move2; p2.y += ny * move2; p2.z += nz * move2;
 
-                                // 🔧 同步历史位置，并加入阻尼（摩擦），减少由于碰撞产生的多余弹跳
                                 const damping = collisionFriction;
                                 p1.oldX -= nx * move1 * damping; p1.oldY -= ny * move1 * damping; p1.oldZ -= nz * move1 * damping;
                                 p2.oldX += nx * move2 * damping; p2.oldY += ny * move2 * damping; p2.oldZ += nz * move2 * damping;
@@ -6086,6 +6126,7 @@ addBendSpring(i, j) {
                 }
             }
         }
+        this.collisionFrameCount++;
     }
 
 simulate(dt) {
@@ -6311,6 +6352,9 @@ simulate(dt) {
 
         // ================= 自碰撞 =================
         if (collisionEnabled) {
+            // 🟢 核心优化：在多次迭代前，只建 1 次空间网格
+            this.buildCollisionGrid();
+            
             const collisionIters = parseInt(collisionItersSlider.value);
             const iters = lockedIndices.size > 0 ? 1 : collisionIters;
             for (let ci = 0; ci < iters; ci++) {
