@@ -3425,27 +3425,43 @@ function updatePbrTextures() {
 function applyPbrRepeat() {
     const baseRepeat = Math.max(0.1, pbrTexSize);
     const noiseRepeat = Math.max(0.1, pbrNoiseSize);
-    let baseRepX = baseRepeat, baseRepY = baseRepeat;
-    if (imgAspect >= 1) {
-        baseRepX = baseRepeat * imgAspect;
-    } else {
-        baseRepY = baseRepeat / imgAspect;
-    }
-    let noiseRepX = noiseRepeat, noiseRepY = noiseRepeat;
-    if (imgAspect >= 1) {
-        noiseRepX = noiseRepeat * imgAspect;
-    } else {
-        noiseRepY = noiseRepeat / imgAspect;
-    }
+    
     if (pbrBaseNormalTexture) {
-        pbrBaseNormalTexture.repeat.set(baseRepX, baseRepY);
+        // 🟢 修复：如果是自定义法线图，说明它本身就是按底图比例做的，不能强行拉伸
+        if (pbrBaseNormalTexture === pbrCustomNormalTexture) {
+            pbrBaseNormalTexture.repeat.set(baseRepeat, baseRepeat);
+        } else {
+            // 程序化生成的贴图是正方形，需要按 imgAspect 补偿防止拉伸
+            let baseRepX = baseRepeat, baseRepY = baseRepeat;
+            if (imgAspect >= 1) {
+                baseRepX = baseRepeat * imgAspect;
+            } else {
+                baseRepY = baseRepeat / imgAspect;
+            }
+            pbrBaseNormalTexture.repeat.set(baseRepX, baseRepY);
+        }
     }
+    
     if (pbrNoiseNormalTexture) {
+        let noiseRepX = noiseRepeat, noiseRepY = noiseRepeat;
+        if (imgAspect >= 1) {
+            noiseRepX = noiseRepeat * imgAspect;
+        } else {
+            noiseRepY = noiseRepeat / imgAspect;
+        }
         pbrNoiseNormalTexture.repeat.set(noiseRepX, noiseRepY);
     }
+    
     if (pbrAlphaTexture) {
-        pbrAlphaTexture.repeat.set(baseRepX, baseRepY);
+        let alphaRepX = baseRepeat, alphaRepY = baseRepeat;
+        if (imgAspect >= 1) {
+            alphaRepX = baseRepeat * imgAspect;
+        } else {
+            alphaRepY = baseRepeat / imgAspect;
+        }
+        pbrAlphaTexture.repeat.set(alphaRepX, alphaRepY);
     }
+    
     if (activeShaderRef) {
         if (pbrBaseNormalTexture && activeShaderRef.uniforms.uNormalRepeat) {
             activeShaderRef.uniforms.uNormalRepeat.value.copy(pbrBaseNormalTexture.repeat);
