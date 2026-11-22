@@ -143,6 +143,7 @@ let editMode = true;
 let isSimulating = true;
 // 🪶 本次会话是否已经生成过布料（用于决定要不要继续显示第二步引导）
 let hasGeneratedOnce = false;
+let userTouchedMeshRes = false;   // 用户手动改过网格密度 → 生成时不再套预设值
 
 let scene, camera, renderer;
 let sceneHolder = null;   // 🎥 3D 镜头：旋转这个 group
@@ -2147,6 +2148,8 @@ physicsPresetSelect.onchange = () => {
     const preset = physicsPresets[physicsPresetSelect.value];
     if (!preset) return;
     applyPresetToSliders(preset);
+    // 换预设 = 有意采用该预设的网格密度
+    userTouchedMeshRes = false;
     if (cloth) cloth.wake();
 };
 
@@ -6830,7 +6833,8 @@ let dy = (targetY - p.y) * dragStrength;
 let dz = (targetZ - p.z) * dragStrength;
 
             const moveLen = Math.hypot(dx, dy, dz);
-            const maxStep = 0.15;
+            // 单帧拖拽位移上限 ≈ 2 个网格间距（原来 0.15 ≈ 4.5 格，会把边硬拽成条）
+            const maxStep = Math.max(0.03, (cloth.baseRestLength || 0.03) * 2);
             if (moveLen > maxStep) {
                 const ratio = maxStep / moveLen;
                 dx *= ratio; dy *= ratio; dz *= ratio;
@@ -7216,7 +7220,8 @@ function updateMultiDrag(touch) {
             let dz = (targetZ - p.z) * 0.4;
 
             const moveLen = Math.hypot(dx, dy, dz);
-            const maxStep = 0.15;
+            // 单帧拖拽位移上限 ≈ 2 个网格间距（原来 0.15 ≈ 4.5 格，会把边硬拽成条）
+            const maxStep = Math.max(0.03, (cloth.baseRestLength || 0.03) * 2);
             if (moveLen > maxStep) {
                 const ratio = maxStep / moveLen;
                 dx *= ratio; dy *= ratio; dz *= ratio;
@@ -7904,6 +7909,7 @@ const physicsHzEl = document.getElementById("physicsHz");
 const constraintIterationsEl = document.getElementById("constraintIterations");
 
 const lowSpecLockBuf = [];
+let lowSpecCollisionTick = 0;   // 低配自碰撞隔帧计数
 
 const lowSpecHost = {
     // 每帧读一次 UI/全局参数，之后热循环里不再碰 DOM
@@ -7959,10 +7965,12 @@ const lowSpecHost = {
     getDecorations() { return decorations; },
     // 自碰撞交给经典实现跑（质量可靠），但低配下限制最多 2 遍
     solveCollision(c, lockSet) {
+        // 🪶 低配：隔帧跑一次、每次 1 遍。碰撞是纯额外开销，
+        //    隔帧后视觉上几乎察觉不到，但赛扬这类 CPU 能省掉一半。
+        lowSpecCollisionTick = (lowSpecCollisionTick + 1) & 1;
+        if (lowSpecCollisionTick !== 0) return;
         c.buildCollisionGrid();
-        const want = parseInt(collisionItersSlider.value) || 1;
-        const passes = Math.min(want, LOW_SPEC.MAX_COLLISION_PASSES);
-        for (let i = 0; i < passes; i++) c.solveCollision(lockSet);
+        c.solveCollision(lockSet);
     },
     afterSolve(c) {
         c.updateGeo();
@@ -8245,6 +8253,10 @@ for (let j = 0; j <= resY; j++) {
         this.mesh.receiveShadow = shadowEnabled;
 
         this.collisionGrid = new Map();
+        // 自碰撞用的锁定标记缓冲（Int8，避免每帧 Set.has）
+        this._lockedBuf = new Int8Array(0);
+        this._decorIdx = new Int32Array(0);
+        this._decorKey = -1;
                 // 🟢 新增：碰撞网格复用池，避免每帧新建数组导致GC卡顿
         this.cellPool = [];
         this.cellPoolIndex = 0;
@@ -8335,116 +8347,141 @@ addBendSpring(i, j) {
     buildCollisionGrid() {
         const pLen = this.particles.length;
         if (pLen === 0) return;
-        
+
         const baseRadius = this.baseRestLength * parseFloat(collisionRadiusSlider.value);
-        const cellSize = baseRadius * 2.5; 
-        const invCellSize = 1.0 / cellSize;
+        // 格子边长取 2.5 倍半径，覆盖 1 圈邻域
+        const cellSize = baseRadius * 2.5;
+        this._currentBaseRadius = baseRadius;
+        this._currentInvCellSize = 1.0 / cellSize;
 
-        const gridMap = this.collisionGrid;
-        for (let i = 0; i < this.cellPoolIndex; i++) {
-            this.cellPool[i].length = 0; 
+        // 定长哈希桶（比 Map 快，无 GC）：桶数取 2 的幂，用掩码代替取模
+        const BUCKETS = this._collisionBuckets ||
+            (this._collisionBuckets = 1 << Math.max(10, Math.min(16, Math.ceil(Math.log2(Math.max(1024, pLen * 4))))));
+        const MASK = BUCKETS - 1;
+
+        // 每桶的起始计数 + 链表（single pass：先计数，再填充）
+        if (!this._bucketCount || this._bucketCount.length !== BUCKETS) {
+            this._bucketCount = new Int32Array(BUCKETS);
+            this._bucketHead = new Int32Array(BUCKETS);
+            this._next = new Int32Array(pLen);
         }
-        this.cellPoolIndex = 0;
-        gridMap.clear();
+        const count = this._bucketCount;
+        const head = this._bucketHead;
+        const next = this._next;
+        count.fill(0);
+        head.fill(-1);
 
+        const inv = this._currentInvCellSize;
+        const cells = this._cellKey || (this._cellKey = new Int32Array(pLen));
+
+        // 第一遍：算格子哈希 + 计数
         for (let i = 0; i < pLen; i++) {
             const p = this.particles[i];
-            const cx = Math.floor(p.x * invCellSize);
-            const cy = Math.floor(p.y * invCellSize);
-            const cz = Math.floor(p.z * invCellSize);
-            const hash = (cx * 92837111) ^ (cy * 689287499) ^ (cz * 283923481); 
-            
-            let cell = gridMap.get(hash);
-            if (!cell) {
-                if (this.cellPoolIndex < this.cellPool.length) {
-                    cell = this.cellPool[this.cellPoolIndex++];
-                } else {
-                    cell = [];
-                    this.cellPool.push(cell);
-                    this.cellPoolIndex++;
-                }
-                gridMap.set(hash, cell);
-            }
-            cell.push(i);
+            const cx = Math.floor(p.x * inv);
+            const cy = Math.floor(p.y * inv);
+            const cz = Math.floor(p.z * inv);
+            let h = (cx * 73856093) ^ (cy * 19349663) ^ (cz * 83492791);
+            h &= MASK;
+            cells[i] = h;
+            next[i] = head[h];
+            head[h] = i;
+            count[h]++;
         }
-        
-        // 缓存参数供 solveCollision 使用
-        this._currentBaseRadius = baseRadius;
-        this._currentInvCellSize = invCellSize;
+
+        this._currentBucketMask = MASK;
+        this._currentBucketHead = head;
+        this._currentNext = next;
+        this._currentCellKey = cells;
     }
 
     // 🟢 优化：只负责查表和排斥计算，性能极快
     solveCollision(lockedIndices) {
         const pLen = this.particles.length;
         if (pLen === 0) return;
+        const head = this._currentBucketHead;
+        if (!head) return;
+        const next = this._currentNext;
+        const MASK = this._currentBucketMask;
+        const inv = this._currentInvCellSize;
+        const radiusBase = this._currentBaseRadius;
+        const particles = this.particles;
+        const pushMul = parseFloat(collisionForceSlider.value);
+        const damping = collisionFriction;
 
-        const decorMap = this.decorCollisionMap || (this.decorCollisionMap = new Map());
-        if (this.collisionFrameCount === 0) {
-            decorMap.clear();
-            decorations.forEach(d => decorMap.set(d.particleIndex, d.weight));
+        // 装饰物半径倍率缓存（装饰数量变化时才重建）
+        const decorKey = decorations.length;
+        if (this._decorKey !== decorKey || this._decorIdx.length < pLen) {
+            this._decorKey = decorKey;
+            this._decorIdx = new Int32Array(pLen);
+            for (let d = 0; d < decorations.length; d++) {
+                const idx = decorations[d].particleIndex;
+                if (idx >= 0 && idx < pLen) this._decorIdx[idx] = decorations[d].weight === 'heavy' ? 2 : 1;
+            }
         }
+        const decorIdx = this._decorIdx;
 
-        const baseRadius = this._currentBaseRadius;
-        const invCellSize = this._currentInvCellSize;
-        const gridMap = this.collisionGrid;
+        // 锁定标记缓冲
+        if (this._lockedBuf.length < pLen) this._lockedBuf = new Int8Array(pLen);
+        const locked = this._lockedBuf;
+        locked.fill(0, 0, pLen);
+        for (const idx of lockedIndices) if (idx >= 0 && idx < pLen) locked[idx] = 1;
+
+        const rMul1 = 1.2, rMul2 = 1.5;
 
         for (let i = 0; i < pLen; i++) {
-            const p1 = this.particles[i];
-            const cx = Math.floor(p1.x * invCellSize);
-            const cy = Math.floor(p1.y * invCellSize);
-            const cz = Math.floor(p1.z * invCellSize);
+            const p1 = particles[i];
+            if (p1.pinned || locked[i]) continue;
 
-            for (let ox = -1; ox <= 1; ox++) {
-                for (let oy = -1; oy <= 1; oy++) {
-                    for (let oz = -1; oz <= 1; oz++) {
-                        const hash = ((cx + ox) * 92837111) ^ ((cy + oy) * 689287499) ^ ((cz + oz) * 283923481);
-                        const cell = gridMap.get(hash);
-                        if (!cell) continue;
+            const cx = Math.floor(p1.x * inv);
+            const cy = Math.floor(p1.y * inv);
+            const cz = Math.floor(p1.z * inv);
 
-                        for (let k = 0, cLen = cell.length; k < cLen; k++) {
-                            const j = cell[k];
-                            if (j <= i) continue; 
+            const di = decorIdx[i];
 
-                            const p2 = this.particles[j];
-                            if (Math.abs(p1.ix - p2.ix) <= 1 && Math.abs(p1.iy - p2.iy) <= 1) continue;
+            // 自身格 + 6 个相邻格（格子边长 2.5 倍半径，7 格足够覆盖）
+            for (let n = 0; n < 7; n++) {
+                let hx = cx, hy = cy, hz = cz;
+                if (n === 1) hx++;
+                else if (n === 2) hx--;
+                else if (n === 3) hy++;
+                else if (n === 4) hy--;
+                else if (n === 5) hz++;
+                else if (n === 6) hz--;
 
-                            const isP1Locked = lockedIndices.has(i);
-                            const isP2Locked = lockedIndices.has(j);
-                            if ((p1.pinned || isP1Locked) && (p2.pinned || isP2Locked)) continue;
-
-                            const dx = p2.x - p1.x;
-                            const dy = p2.y - p1.y;
-                            const dz = p2.z - p1.z;
-                            const d2 = dx * dx + dy * dy + dz * dz;
-
-                            const r1 = decorMap.has(i) ? baseRadius * (decorMap.get(i)==='heavy'?1.5:1.2) : baseRadius;
-                            const r2 = decorMap.has(j) ? baseRadius * (decorMap.get(j)==='heavy'?1.5:1.2) : baseRadius;
-                            const currentRadius = r1 > r2 ? r1 : r2;
-
-                            if (d2 < currentRadius * currentRadius) {
-                                const d = Math.sqrt(d2) || 0.001;
-                                const nx = dx / d, ny = dy / d, nz = dz / d;
-
-                                const overlapDist = currentRadius - d;
-                                const pushAmount = Math.min(overlapDist, currentRadius * 0.25) * parseFloat(collisionForceSlider.value);
-
-                                const w1 = (p1.pinned || isP1Locked) ? 0 : p1.invMass;
-                                const w2 = (p2.pinned || isP2Locked) ? 0 : p2.invMass;
-                                const wSum = w1 + w2;
-                                if (wSum === 0) continue;
-
-                                const move1 = pushAmount * (w1 / wSum);
-                                const move2 = pushAmount * (w2 / wSum);
-
-                                p1.x -= nx * move1; p1.y -= ny * move1; p1.z -= nz * move1;
-                                p2.x += nx * move2; p2.y += ny * move2; p2.z += nz * move2;
-
-                                const damping = collisionFriction;
-                                p1.oldX -= nx * move1 * damping; p1.oldY -= ny * move1 * damping; p1.oldZ -= nz * move1 * damping;
-                                p2.oldX += nx * move2 * damping; p2.oldY += ny * move2 * damping; p2.oldZ += nz * move2 * damping;
+                const hash = ((hx * 73856093) ^ (hy * 19349663) ^ (hz * 83492791)) & MASK;
+                let j = head[hash];
+                while (j !== -1) {
+                    if (j > i) {
+                        const p2 = particles[j];
+                        if (!p2.pinned && !locked[j]) {
+                            // 相邻网格点跳过（布料自身缝合）
+                            const ax = p1.ix - p2.ix, ay = p1.iy - p2.iy;
+                            if (!((ax <= 1 && ax >= -1) && (ay <= 1 && ay >= -1))) {
+                                const dx = p2.x - p1.x, dy = p2.y - p1.y, dz = p2.z - p1.z;
+                                const d2 = dx * dx + dy * dy + dz * dz;
+                                const dj = decorIdx[j];
+                                const rad = (di || dj)
+                                    ? radiusBase * (di > dj ? (di === 2 ? rMul2 : rMul1) : (dj === 2 ? rMul2 : rMul1))
+                                    : radiusBase;
+                                if (d2 < rad * rad) {
+                                    const d = Math.sqrt(d2) || 0.001;
+                                    const ndx = dx / d, ndy = dy / d, ndz = dz / d;
+                                    const overlap = rad - d;
+                                    const push = (overlap < rad * 0.25 ? overlap : rad * 0.25) * pushMul;
+                                    const w1 = p1.invMass, w2 = p2.invMass;
+                                    const wSum = w1 + w2;
+                                    if (wSum > 0) {
+                                        const m1 = push * (w1 / wSum), m2 = push * (w2 / wSum);
+                                        p1.x -= ndx * m1; p1.y -= ndy * m1; p1.z -= ndz * m1;
+                                        p2.x += ndx * m2; p2.y += ndy * m2; p2.z += ndz * m2;
+                                        p1.oldX -= ndx * m1 * damping; p1.oldY -= ndy * m1 * damping; p1.oldZ -= ndz * m1 * damping;
+                                        p2.oldX += ndx * m2 * damping; p2.oldY += ndy * m2 * damping; p2.oldZ += ndz * m2 * damping;
+                                    }
+                                }
                             }
                         }
                     }
+                    j = next[j];
                 }
             }
         }
@@ -8489,7 +8526,8 @@ simulate(dt) {
     const stretchLimit = parseFloat(maxStretchSlider.value);
     const effectiveStiff = stiff * (1.5 / stretchLimit);
     // 🧵 硬拉伸上限：只给 stretchLimit 的一小部分（真实布料 1~3%），弹性材料则按比例放宽
-    const strainHardCap = Math.min(2.0, Math.max(1.012, 1 + (stretchLimit - 1) * 0.28));
+    // 硬上限收紧到 18% 的 stretchLimit 余量：棉/麻类几乎拉不动，弹性材料仍有空间
+    const strainHardCap = Math.min(1.6, Math.max(1.012, 1 + (stretchLimit - 1) * 0.18));
 
     // ===== 新增参数读取 =====
     const gBase = parseFloat(gravitySlider.value); // 0~0.3，默认 0.1
@@ -8627,7 +8665,8 @@ simulate(dt) {
                     diffX = dx * corr; diffY = dy * corr; diffZ = dz * corr;
                     // 单次修正上限按静止长度比例，避免一次拉太猛过冲
                     const pm = Math.sqrt(diffX*diffX + diffY*diffY + diffZ*diffZ);
-                    const passMax = s.restLength * 0.6;
+                    // 限幅放宽到 3 格：被鼠标硬拽时也能把边收回来，不会拉成条
+                    const passMax = s.restLength * 3.0;
                     if (pm > passMax) {
                         const sc2 = passMax / pm;
                         diffX *= sc2; diffY *= sc2; diffZ *= sc2;
@@ -8717,10 +8756,10 @@ simulate(dt) {
 
 document.getElementById("genBtn").onclick = () => {
     if (!loadedImage) { alert(window.I18N[window.currentLang].alert_no_img); return; }
-    // 🧵 先用当前预设自带的网格密度去初始化滑块（用户之后仍可手动改）
+    // 🧵 只有第一次生成（还没动过网格密度）才跟随预设；之后一律以用户滑块为准，不再被重置
     const presetKey = physicsPresetSelect.value;
     const presetForMesh = physicsPresets[presetKey];
-    if (presetKey !== "custom" && presetForMesh && presetForMesh.meshRes) {
+    if (!userTouchedMeshRes && presetKey !== "custom" && presetForMesh && presetForMesh.meshRes) {
         meshResSlider.value = presetForMesh.meshRes;
         document.getElementById("meshResValue").textContent = presetForMesh.meshRes;
     }
@@ -9104,6 +9143,9 @@ bindSlider("camY", "camYValue", updateCamera);
 bindSlider("pinRadius", "pinRadiusValue", redrawPreview, (v) => parseFloat(v).toFixed(3));
 bindSlider("simMult", "simMultValue", null, (v) => parseFloat(v).toFixed(2));
 bindSlider("meshRes", "meshResValue", null, (v) => parseInt(v));
+// 用户一旦手动调过网格密度，后续生成就不再被预设覆盖
+if (meshResSlider) meshResSlider.addEventListener("input", () => { userTouchedMeshRes = true; });
+if (meshResSlider) meshResSlider.addEventListener("change", () => { userTouchedMeshRes = true; });
 bindSlider("knifeRadius", "knifeRadiusValue", null, (v) => parseFloat(v).toFixed(3));
 bindSlider("dragRadius", "dragRadiusValue", null, (v) => parseFloat(v).toFixed(2));
 bindSlider("maxDragDistance", "maxDragDistanceValue", null, (v) => parseFloat(v).toFixed(2));

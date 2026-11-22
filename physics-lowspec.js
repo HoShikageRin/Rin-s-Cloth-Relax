@@ -376,7 +376,8 @@ export class LowSpecSolver {
 
         const stretchLimit = Math.max(1.001, pl.stretchLimit);
         // 🧵 硬拉伸上限：只给 stretchLimit 的一小部分（真实布料 1~3% 应变）
-        const strainHardCap = Math.min(2.0, Math.max(1.012, 1 + (stretchLimit - 1) * 0.28));
+        // 硬上限收紧到 18% 的 stretchLimit 余量：棉/麻类几乎拉不动，弹性材料仍有空间
+        const strainHardCap = Math.min(1.6, Math.max(1.012, 1 + (stretchLimit - 1) * 0.18));
         const springDampV = pl.springDamp;
         const bendK = pl.bend;
 
@@ -505,41 +506,40 @@ export class LowSpecSolver {
                     }
 
                     // ===== 拉伸约束：软弹性区间 + 硬上限投影 =====
-                    // 硬上限取 stretchLimit 的一小部分（真实机织布只有 1~3% 应变），超过就完全投影，
-                    // 从根上消除「拉长—回弹」的橡皮筋感；弯曲约束完全不动，褶皱与垂感照旧。
+                    // 热循环里只做乘法比较，避免每根弹簧每遍都做除法 / 开方（赛扬这类 CPU 最吃这个）。
                     const limit = rest * strainHardCap;
                     let cx, cy, cz;
 
-                    if (dist > limit) {
-                        // 强投影回硬上限（每次至少修掉 85% 超出量），再按单次限幅防止过冲
-                        // 超出上限要拉近：修正量为正（dist-limit），沿 dx 方向收拢
-                        const pull = ((dist - limit) * 0.9) / dist;
+                    // 死区：微小超出（<0.3%）不校正，否则静置时永远在微抖 → 永不休眠
+                    if (dist > limit * 1.003) {
+                        // 超出硬上限：修正比例 = 超出量 / 当前长度，直接限幅（无需 sqrt）
+                        let pull = (dist - limit) / dist;
+                        if (pull > 0.6) pull = 0.6;
                         cx = dx * pull; cy = dy * pull; cz = dz * pull;
-                        // 单次修正上限按静止长度比例（约半格），避免一次拉太猛过冲
-                        const pm = Math.sqrt(cx*cx + cy*cy + cz*cz);
-                        // 限幅放宽到「一整格」，既不会过冲，也能在被硬拽后收回来
-                        const passMax = Math.max(rest * 2.0, MAX_CORRECTION);
-                        if (pm > passMax) {
-                            const s = passMax / pm;
-                            cx *= s; cy *= s; cz *= s;
-                        }
-
+                        // 吃掉超限弹簧 65% 动能，抑制回弹
                         this.ox[a] = this.px[a] - (this.px[a] - this.ox[a]) * 0.35;
                         this.oy[a] = this.py[a] - (this.py[a] - this.oy[a]) * 0.35;
                         this.oz[a] = this.pz[a] - (this.pz[a] - this.oz[a]) * 0.35;
                         this.ox[b] = this.px[b] - (this.px[b] - this.ox[b]) * 0.35;
                         this.oy[b] = this.py[b] - (this.py[b] - this.oy[b]) * 0.35;
                         this.oz[b] = this.pz[b] - (this.pz[b] - this.oz[b]) * 0.35;
+                    } else if (dist > limit) {
+                        // 临界带内：只做位置校正，不动速度（避免持续注入运动量）
+                        let pull = (dist - limit) / dist;
+                        if (pull > 0.3) pull = 0.3;
+                        cx = dx * pull; cy = dy * pull; cz = dz * pull;
                     } else {
                         // 弹性区间：软约束 + 应变超过 1.5% 后刚度非线性升高
                         let lk = effStiff * sMul[k];
-                        const strain = dist / rest;
-                        if (strain > 1.015) {
-                            const t = Math.min(1, (strain - 1.015) / Math.max(0.001, strainHardCap - 1.015));
-                            lk = lk + (1.0 - lk) * t;
+                        const soft = rest * 1.015;
+                        if (dist > soft) {
+                            const hard = rest * strainHardCap;
+                            const t = (dist - soft) / (hard - soft + 1e-9);
+                            lk += (1 - lk) * (t > 1 ? 1 : t);
                         }
                         if (lk > 1) lk = 1;
-                        const diff = ((dist - rest) / dist) * lk;
+                        const inv = 1 / dist;
+                        const diff = (dist - rest) * inv * lk;
                         cx = dx * diff; cy = dy * diff; cz = dz * diff;
                     }
 
