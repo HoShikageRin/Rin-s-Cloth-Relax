@@ -1,6 +1,8 @@
 // 文件名：script.js
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+// 🪶 低配模式物理求解器（独立文件：physics-lowspec.js）
+import { LowSpecSolver, LOW_SPEC } from './physics-lowspec.js';
 
 const selDecorColor = document.getElementById("selDecorColor");
 const previewCanvas = document.getElementById("previewCanvas");
@@ -139,8 +141,11 @@ let isErasing = false;
 let isCutting = false;
 let editMode = true;
 let isSimulating = true;
+// 🪶 本次会话是否已经生成过布料（用于决定要不要继续显示第二步引导）
+let hasGeneratedOnce = false;
 
 let scene, camera, renderer;
+let sceneHolder = null;   // 🎥 3D 镜头：旋转这个 group
 let clothMesh = null;
 let cloth = null;
 let ambientLight = null;
@@ -619,242 +624,685 @@ const physicsExtraDefaults = {
     collFric: 0.6, dragStr: 0.4, airExp: 0.2, maxVel: 0.20, velRet: 1.0
 };
 
+// ==============================================================
+// 🧵 预设基准姿态（REST_POSE）
+// 生成布料时给每类面料一个默认的悬挂角度，让面料特性一眼可辨
+// （只是轻轻倾斜，不是翻转；数值是三个旋转滑块的初始角度）
+// ==============================================================
+const REST_POSE = {
+    flag:         { x: 0,  y: 0,  z: 0 },
+    vinyl_banner: { x: -12, y: 0, z: -10 },
+    awning:       { x: -14, y: 0, z: -6 },
+    burlap:       { x: -6,  y: 0, z: 4 },
+    straw_mat:    { x: 0,  y: 0, z: 18 },
+    canvas:       { x: -4,  y: 0, z: 12 },
+    denim:        { x: -4,  y: 0, z: 10 },
+    tulle:        { x: -8,  y: 0, z: 0 },
+    organza:      { x: -6,  y: 0, z: 0 },
+    lace:         { x: -5,  y: 0, z: 0 },
+    chiffon:      { x: -4,  y: 0, z: 0 },
+    silk:         { x: -4,  y: 0, z: 0 },
+    satin:        { x: -3,  y: 0, z: 0 },
+    taffeta:      { x: -3,  y: 0, z: 0 },
+    velvet:       { x: 0,   y: 0, z: -4 }
+};
+
 const physicsPresets = {
-    // ================= 日常柔软布料 =================
+    // ==========================================================
+    // 日常服装面料
+    // ==========================================================
     cotton: {
-        // 基础棉布：重量适中，容易产生自然的垂坠感
-        stiffness: 0.5, maxStretch: 1.3, damping: 0.05, mass: 30.0, meshRes: 24, maxDrag: 0.6, iterations: 8, hz: 100,
-        plasticity: false, plRate: 0.05, plThreshold: 1.05, plRecovery: 0.001, plMax: 2.0,
-        bend: 0.25, shear: 1.0, stiffX: 1.0, stiffY: 1.0, springDamp: 0.02,
-        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
-        collFric: 0.6, dragStr: 0.40, airExp: 0.20, maxVel: 0.30, velRet: 1.0
+        // 平纹棉：软硬适中，垂坠自然，拉扯后有轻微回弹
+        stiffness: 0.50, maxStretch: 1.30, damping: 0.055, mass: 30.0, meshRes: 24, maxDrag: 0.6, iterations: 8, hz: 100,
+        plasticity: false, plRate: 0.05, plThreshold: 1.05, plRecovery: 0.0015, plMax: 1.6,
+        bend: 0.25, shear: 1.00, stiffX: 1.00, stiffY: 1.00, springDamp: 0.02,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.80,
+        collFric: 0.60, dragStr: 0.40, airExp: 0.20, maxVel: 0.30, velRet: 1.0
     },
     washed_cotton: {
-        // 水洗棉：比普通棉布更软，拉伸性更好
-        stiffness: 0.35, maxStretch: 1.4, damping: 0.06, mass: 35.0, meshRes: 24, maxDrag: 0.7, iterations: 8, hz: 100,
-        plasticity: false, plRate: 0.08, plThreshold: 1.03, plRecovery: 0.002, plMax: 2.5,
-        bend: 0.15, shear: 0.9, stiffX: 1.0, stiffY: 1.0, springDamp: 0.02,
-        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
-        collFric: 0.6, dragStr: 0.45, airExp: 0.20, maxVel: 0.32, velRet: 1.0
+        // 水洗棉：比平纹更软、更有"穿旧了"的松弛感，形变更容易留下
+        stiffness: 0.32, maxStretch: 1.42, damping: 0.065, mass: 35.0, meshRes: 24, maxDrag: 0.8, iterations: 8, hz: 100,
+        plasticity: true, plRate: 0.09, plThreshold: 1.03, plRecovery: 0.0025, plMax: 2.2,
+        bend: 0.14, shear: 0.88, stiffX: 1.00, stiffY: 0.95, springDamp: 0.02,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.80,
+        collFric: 0.62, dragStr: 0.46, airExp: 0.20, maxVel: 0.32, velRet: 1.0
     },
     linen: {
-        // 亚麻：稍微有点清脆的骨架感，但依然柔软
-        stiffness: 0.7, maxStretch: 1.15, damping: 0.06, mass: 25.0, meshRes: 26, maxDrag: 0.5, iterations: 8, hz: 100,
-        plasticity: false, plRate: 0.05, plThreshold: 1.05, plRecovery: 0.002, plMax: 2.0,
-        bend: 0.35, shear: 1.2, stiffX: 1.3, stiffY: 1.0, springDamp: 0.03,
+        // 亚麻：清爽的骨架感，挺括但易碎褶
+        stiffness: 0.72, maxStretch: 1.14, damping: 0.060, mass: 25.0, meshRes: 26, maxDrag: 0.5, iterations: 8, hz: 100,
+        plasticity: true, plRate: 0.05, plThreshold: 1.04, plRecovery: 0.0015, plMax: 1.8,
+        bend: 0.38, shear: 1.25, stiffX: 1.30, stiffY: 1.05, springDamp: 0.03,
         windSpatial: 4.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.85,
-        collFric: 0.65, dragStr: 0.40, airExp: 0.22, maxVel: 0.25, velRet: 1.0
+        collFric: 0.68, dragStr: 0.38, airExp: 0.22, maxVel: 0.25, velRet: 1.0
     },
     wool: {
-        // 羊毛：偏厚重，有厚实感
-        stiffness: 0.65, maxStretch: 1.15, damping: 0.08, mass: 55.0, meshRes: 32, maxDrag: 0.5, iterations: 8, hz: 100,
+        // 羊毛：厚重、蓬松，下坠感明显
+        stiffness: 0.62, maxStretch: 1.16, damping: 0.085, mass: 55.0, meshRes: 30, maxDrag: 0.5, iterations: 8, hz: 100,
         plasticity: false, plRate: 0.05, plThreshold: 1.05, plRecovery: 0.002, plMax: 2.0,
-        bend: 0.40, shear: 1.3, stiffX: 1.2, stiffY: 1.1, springDamp: 0.04,
+        bend: 0.42, shear: 1.30, stiffX: 1.18, stiffY: 1.10, springDamp: 0.04,
         windSpatial: 4.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.85,
-        collFric: 0.65, dragStr: 0.35, airExp: 0.25, maxVel: 0.28, velRet: 1.0
+        collFric: 0.70, dragStr: 0.33, airExp: 0.26, maxVel: 0.28, velRet: 1.0
     },
     velvet: {
-        // 天鹅绒：极度垂坠、有光泽、密实
-        stiffness: 0.55, maxStretch: 1.2, damping: 0.07, mass: 60.0, meshRes: 36, maxDrag: 0.6, iterations: 8, hz: 100,
-        plasticity: false, plRate: 0.08, plThreshold: 1.08, plRecovery: 0.003, plMax: 2.5,
-        bend: 0.20, shear: 0.9, stiffX: 1.1, stiffY: 1.0, springDamp: 0.04,
-        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
-        collFric: 0.60, dragStr: 0.40, airExp: 0.22, maxVel: 0.26, velRet: 1.0
+        // 天鹅绒：密实、垂坠、几乎不回弹，压下去像绒毯
+        stiffness: 0.55, maxStretch: 1.18, damping: 0.090, mass: 60.0, meshRes: 32, maxDrag: 0.6, iterations: 8, hz: 100,
+        plasticity: true, plRate: 0.07, plThreshold: 1.06, plRecovery: 0.001, plMax: 2.2,
+        bend: 0.22, shear: 0.95, stiffX: 1.10, stiffY: 1.00, springDamp: 0.05,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.82,
+        collFric: 0.72, dragStr: 0.36, airExp: 0.24, maxVel: 0.26, velRet: 1.0
     },
     worsted_wool: {
-        // 精纺毛呢：非常紧密、厚重、挺括
-        stiffness: 0.8, maxStretch: 1.1, damping: 0.1, mass: 85.0, meshRes: 32, maxDrag: 0.3, iterations: 8, hz: 110,
-        plasticity: false, plRate: 0.06, plThreshold: 1.03, plRecovery: 0.001, plMax: 2.0,
-        bend: 0.55, shear: 1.5, stiffX: 1.5, stiffY: 1.2, springDamp: 0.05,
-        windSpatial: 4.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.85,
-        collFric: 0.65, dragStr: 0.30, airExp: 0.25, maxVel: 0.25, velRet: 1.0
+        // 精纺毛呢：西装面料，紧密、挺括、几乎不飘
+        stiffness: 0.82, maxStretch: 1.08, damping: 0.100, mass: 85.0, meshRes: 30, maxDrag: 0.3, iterations: 8, hz: 110,
+        plasticity: false, plRate: 0.04, plThreshold: 1.03, plRecovery: 0.001, plMax: 1.6,
+        bend: 0.58, shear: 1.55, stiffX: 1.50, stiffY: 1.20, springDamp: 0.06,
+        windSpatial: 4.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.86,
+        collFric: 0.70, dragStr: 0.28, airExp: 0.28, maxVel: 0.24, velRet: 1.0
     },
     tr_blend: {
-        // TR混纺：日常西装面料，有一定骨架
-        stiffness: 0.6, maxStretch: 1.2, damping: 0.07, mass: 40.0, meshRes: 26, maxDrag: 0.5, iterations: 8, hz: 100,
+        // TR 混纺：西装里布那种"有骨架但不硬"的手感
+        stiffness: 0.60, maxStretch: 1.22, damping: 0.070, mass: 40.0, meshRes: 26, maxDrag: 0.5, iterations: 8, hz: 100,
         plasticity: false, plRate: 0.04, plThreshold: 1.08, plRecovery: 0.003, plMax: 1.8,
-        bend: 0.3, shear: 1.15, stiffX: 1.1, stiffY: 1.0, springDamp: 0.03,
-        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
-        collFric: 0.6, dragStr: 0.40, airExp: 0.20, maxVel: 0.28, velRet: 1.0
+        bend: 0.30, shear: 1.15, stiffX: 1.10, stiffY: 1.00, springDamp: 0.03,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.80,
+        collFric: 0.62, dragStr: 0.40, airExp: 0.22, maxVel: 0.28, velRet: 1.0
     },
     polyester: {
-        // 涤纶：顺滑、微弹、不重
-        stiffness: 0.7, maxStretch: 1.25, damping: 0.06, mass: 25.0, meshRes: 28, maxDrag: 0.4, iterations: 8, hz: 100,
-        plasticity: false, plRate: 0.02, plThreshold: 1.10, plRecovery: 0.005, plMax: 1.5,
-        bend: 0.35, shear: 1.3, stiffX: 1.2, stiffY: 1.2, springDamp: 0.03,
-        windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
-        collFric: 0.6, dragStr: 0.35, airExp: 0.22, maxVel: 0.30, velRet: 1.0
+        // 涤纶：顺滑、微弹、轻，抖一抖就平
+        stiffness: 0.68, maxStretch: 1.28, damping: 0.055, mass: 25.0, meshRes: 28, maxDrag: 0.5, iterations: 8, hz: 100,
+        plasticity: false, plRate: 0.02, plThreshold: 1.10, plRecovery: 0.006, plMax: 1.5,
+        bend: 0.32, shear: 1.30, stiffX: 1.20, stiffY: 1.15, springDamp: 0.03,
+        windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.78,
+        collFric: 0.55, dragStr: 0.36, airExp: 0.22, maxVel: 0.30, velRet: 1.0
     },
-
-    // ================= 极致轻薄的轻纱 =================
+    nylon: {
+        // 尼龙：轻薄顺滑，表面滑溜（碰撞摩擦低），容易整体滑动
+        stiffness: 0.64, maxStretch: 1.34, damping: 0.045, mass: 15.0, meshRes: 28, maxDrag: 0.7, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.03, plThreshold: 1.12, plRecovery: 0.005, plMax: 1.6,
+        bend: 0.20, shear: 1.05, stiffX: 1.10, stiffY: 1.05, springDamp: 0.02,
+        windSpatial: 5.2, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.55,
+        collFric: 0.28, dragStr: 0.44, airExp: 0.14, maxVel: 0.32, velRet: 1.0
+    },
+    terry: {
+        // 毛巾布：厚重、抓地、毛圈吸水感，拖动时很"粘"
+        stiffness: 0.60, maxStretch: 1.30, damping: 0.130, mass: 75.0, meshRes: 30, maxDrag: 0.6, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.05, plThreshold: 1.06, plRecovery: 0.002, plMax: 1.8,
+        bend: 0.30, shear: 1.10, stiffX: 1.08, stiffY: 1.05, springDamp: 0.07,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.92,
+        collFric: 0.88, dragStr: 0.32, airExp: 0.28, maxVel: 0.24, velRet: 1.0
+    },
+    felt: {
+        // 毛毡：致密、几乎不回弹、压上去是"实心的"
+        stiffness: 0.70, maxStretch: 1.12, damping: 0.160, mass: 60.0, meshRes: 26, maxDrag: 0.45, iterations: 9, hz: 100,
+        plasticity: true, plRate: 0.06, plThreshold: 1.04, plRecovery: 0.002, plMax: 1.6,
+        bend: 0.62, shear: 1.40, stiffX: 1.15, stiffY: 1.10, springDamp: 0.15,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.90,
+        collFric: 0.82, dragStr: 0.28, airExp: 0.30, maxVel: 0.22, velRet: 1.0
+    },
+    corduroy: {
+        // 灯芯绒：厚实有绒条，弯折时有明显的"骨位"
+        stiffness: 0.56, maxStretch: 1.22, damping: 0.120, mass: 85.0, meshRes: 30, maxDrag: 0.45, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.04, plThreshold: 1.06, plRecovery: 0.0015, plMax: 1.8,
+        bend: 0.40, shear: 1.10, stiffX: 1.10, stiffY: 1.05, springDamp: 0.05,
+        windSpatial: 4.2, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.88,
+        collFric: 0.78, dragStr: 0.34, airExp: 0.26, maxVel: 0.24, velRet: 1.0
+    },
+    sherpa: {
+        // 羊羔绒：蓬松、厚、阻尼大，抖起来像一团棉
+        stiffness: 0.40, maxStretch: 1.38, damping: 0.170, mass: 70.0, meshRes: 28, maxDrag: 0.7, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.06, plThreshold: 1.05, plRecovery: 0.003, plMax: 2.0,
+        bend: 0.20, shear: 0.88, stiffX: 1.00, stiffY: 1.00, springDamp: 0.07,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.90,
+        collFric: 0.86, dragStr: 0.40, airExp: 0.30, maxVel: 0.24, velRet: 1.0
+    },
+    chenille: {
+        // 雪尼尔：极重、极密实，几乎像一块毯子
+        stiffness: 0.52, maxStretch: 1.16, damping: 0.185, mass: 120.0, meshRes: 28, maxDrag: 0.4, iterations: 10, hz: 110,
+        plasticity: true, plRate: 0.03, plThreshold: 1.10, plRecovery: 0.001, plMax: 1.6,
+        bend: 0.30, shear: 1.20, stiffX: 1.15, stiffY: 1.10, springDamp: 0.09,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.92,
+        collFric: 0.84, dragStr: 0.26, airExp: 0.32, maxVel: 0.20, velRet: 1.0
+    },
+    mohair: {
+        // 马海毛：毛感强、边缘蓬，滑动摩擦大
+        stiffness: 0.50, maxStretch: 1.28, damping: 0.100, mass: 50.0, meshRes: 30, maxDrag: 0.55, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.05, plThreshold: 1.05, plRecovery: 0.002, plMax: 1.8,
+        bend: 0.40, shear: 1.15, stiffX: 1.10, stiffY: 1.05, springDamp: 0.06,
+        windSpatial: 4.4, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.86,
+        collFric: 0.80, dragStr: 0.34, airExp: 0.24, maxVel: 0.26, velRet: 1.0
+    },
+    satin: {
+        // 缎面：滑、垂、贴身，细褶多而流畅
+        stiffness: 0.42, maxStretch: 1.38, damping: 0.050, mass: 45.0, meshRes: 32, maxDrag: 0.7, iterations: 10, hz: 100,
+        plasticity: false, plRate: 0.03, plThreshold: 1.10, plRecovery: 0.004, plMax: 1.7,
+        bend: 0.07, shear: 0.75, stiffX: 1.00, stiffY: 1.00, springDamp: 0.02,
+        windSpatial: 4.6, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.55,
+        collFric: 0.38, dragStr: 0.46, airExp: 0.18, maxVel: 0.30, velRet: 1.0
+    },
+    taffeta: {
+        // 塔夫绸：脆生生的"沙沙"感，褶皱锐利不易塌
+        stiffness: 0.86, maxStretch: 1.06, damping: 0.060, mass: 30.0, meshRes: 32, maxDrag: 0.4, iterations: 10, hz: 100,
+        plasticity: false, plRate: 0.03, plThreshold: 1.05, plRecovery: 0.002, plMax: 1.5,
+        bend: 0.72, shear: 1.60, stiffX: 1.20, stiffY: 1.15, springDamp: 0.04,
+        windSpatial: 4.8, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.80,
+        collFric: 0.55, dragStr: 0.34, airExp: 0.22, maxVel: 0.26, velRet: 1.0
+    },
+    organza: {
+        // 欧根纱：薄而挺，像有骨头的纱，抖一下很有弹性
+        stiffness: 0.76, maxStretch: 1.10, damping: 0.050, mass: 7.0, meshRes: 34, maxDrag: 0.6, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.02, plThreshold: 1.10, plRecovery: 0.006, plMax: 1.4,
+        bend: 0.50, shear: 1.45, stiffX: 1.15, stiffY: 1.00, springDamp: 0.03,
+        windSpatial: 5.2, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.55,
+        collFric: 0.35, dragStr: 0.46, airExp: 0.14, maxVel: 0.32, velRet: 1.0
+    },
+    tulle: {
+        // 蓬蓬网纱：几乎没有重量，一吹就走，回弹慢
+        stiffness: 0.32, maxStretch: 1.70, damping: 0.045, mass: 3.2, meshRes: 34, maxDrag: 1.4, iterations: 10, hz: 100,
+        plasticity: false, plRate: 0.01, plThreshold: 1.35, plRecovery: 0.015, plMax: 1.3,
+        bend: 0.05, shear: 0.55, stiffX: 1.00, stiffY: 1.00, springDamp: 0.01,
+        windSpatial: 6.2, windZ: 0.05, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.40,
+        collFric: 0.30, dragStr: 0.55, airExp: 0.08, maxVel: 0.40, velRet: 1.0
+    },
+    lace: {
+        // 蕾丝：轻薄柔软，边角细碎，垂下来像一层雾
+        stiffness: 0.30, maxStretch: 1.55, damping: 0.040, mass: 4.5, meshRes: 36, maxDrag: 0.9, iterations: 10, hz: 100,
+        plasticity: false, plRate: 0.02, plThreshold: 1.30, plRecovery: 0.010, plMax: 1.4,
+        bend: 0.02, shear: 0.50, stiffX: 1.00, stiffY: 1.00, springDamp: 0.01,
+        windSpatial: 5.8, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.45,
+        collFric: 0.35, dragStr: 0.52, airExp: 0.10, maxVel: 0.36, velRet: 1.0
+    },
     silk: {
-        // 丝绸：极轻，极滑，随风飘荡
-        stiffness: 0.3, maxStretch: 1.5, damping: 0.03, mass: 8.0, meshRes: 40, maxDrag: 0.8, iterations: 10, hz: 100,
+        // 真丝：极轻极滑，垂坠如水，几乎不留褶
+        stiffness: 0.30, maxStretch: 1.50, damping: 0.030, mass: 8.0, meshRes: 36, maxDrag: 0.8, iterations: 10, hz: 100,
         plasticity: false, plRate: 0.02, plThreshold: 1.15, plRecovery: 0.005, plMax: 1.5,
-        bend: 0.05, shear: 0.6, stiffX: 1.0, stiffY: 1.0, springDamp: 0.01,
-        windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.5,
+        bend: 0.05, shear: 0.60, stiffX: 1.00, stiffY: 1.00, springDamp: 0.01,
+        windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.50,
         collFric: 0.40, dragStr: 0.50, airExp: 0.15, maxVel: 0.35, velRet: 1.0
     },
     chiffon: {
-        // 雪纺：极度轻盈透气
-        stiffness: 0.25, maxStretch: 1.4, damping: 0.02, mass: 4.0, meshRes: 48, maxDrag: 1.0, iterations: 10, hz: 100,
+        // 雪纺：比真丝更轻更透，飘起来没有阻力
+        stiffness: 0.24, maxStretch: 1.40, damping: 0.020, mass: 4.0, meshRes: 36, maxDrag: 1.0, iterations: 10, hz: 100,
         plasticity: false, plRate: 0.01, plThreshold: 1.20, plRecovery: 0.010, plMax: 1.3,
-        bend: 0.02, shear: 0.5, stiffX: 1.0, stiffY: 1.0, springDamp: 0.02,
-        windSpatial: 6.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.4,
+        bend: 0.02, shear: 0.50, stiffX: 1.00, stiffY: 1.00, springDamp: 0.02,
+        windSpatial: 6.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.40,
         collFric: 0.35, dragStr: 0.55, airExp: 0.10, maxVel: 0.40, velRet: 1.0
     },
+    gauze: {
+        // 医用纱布：极轻、透、软塌，几乎没有形状记忆
+        stiffness: 0.36, maxStretch: 1.70, damping: 0.035, mass: 5.0, meshRes: 34, maxDrag: 1.1, iterations: 10, hz: 100,
+        plasticity: false, plRate: 0.02, plThreshold: 1.25, plRecovery: 0.008, plMax: 1.4,
+        bend: 0.03, shear: 0.60, stiffX: 1.00, stiffY: 1.00, springDamp: 0.02,
+        windSpatial: 6.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.50,
+        collFric: 0.40, dragStr: 0.50, airExp: 0.10, maxVel: 0.36, velRet: 1.0
+    },
     spidersilk: {
-        // 蛛丝：几乎没重量，弹性极大
-        stiffness: 0.2, maxStretch: 2.5, damping: 0.01, mass: 1.0, meshRes: 60, maxDrag: 3.0, iterations: 12, hz: 100,
-        plasticity: false, plRate: 0.005, plThreshold: 1.3, plRecovery: 0.010, plMax: 1.5,
-        bend: 0.0, shear: 0.3, stiffX: 1.0, stiffY: 1.0, springDamp: 0.005,
-        windSpatial: 7.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.3,
+        // 蛛丝：几乎没重量，弹性极大，一松手就回弹
+        stiffness: 0.22, maxStretch: 2.30, damping: 0.018, mass: 1.4, meshRes: 40, maxDrag: 2.6, iterations: 12, hz: 100,
+        plasticity: false, plRate: 0.005, plThreshold: 1.30, plRecovery: 0.010, plMax: 1.5,
+        bend: 0.00, shear: 0.30, stiffX: 1.00, stiffY: 1.00, springDamp: 0.005,
+        windSpatial: 7.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.30,
         collFric: 0.30, dragStr: 0.60, airExp: 0.05, maxVel: 0.45, velRet: 1.0
     },
+    flag: {
+        // 旗帜布：轻、软、极爱飘，风一来就是波浪
+        stiffness: 0.34, maxStretch: 1.45, damping: 0.028, mass: 9.0, meshRes: 34, maxDrag: 0.9, iterations: 10, hz: 100,
+        plasticity: false, plRate: 0.02, plThreshold: 1.20, plRecovery: 0.006, plMax: 1.5,
+        bend: 0.09, shear: 0.70, stiffX: 1.00, stiffY: 1.00, springDamp: 0.015,
+        windSpatial: 5.6, windZ: 0.10, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.50,
+        collFric: 0.35, dragStr: 0.50, airExp: 0.12, maxVel: 0.40, velRet: 1.0
+    },
+    spandex: {
+        // 氨纶弹力布：能拉很长，松手"啪"地回弹，越拉越紧
+        stiffness: 0.32, maxStretch: 2.55, damping: 0.045, mass: 16.0, meshRes: 30, maxDrag: 1.8, iterations: 11, hz: 100,
+        plasticity: false, plRate: 0.001, plThreshold: 2.20, plRecovery: 0.030, plMax: 1.2,
+        bend: 0.06, shear: 0.45, stiffX: 1.00, stiffY: 1.00, springDamp: 0.08,
+        windSpatial: 4.4, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.60,
+        collFric: 0.40, dragStr: 0.50, airExp: 0.14, maxVel: 0.34, velRet: 1.0
+    },
+    sportmesh: {
+        // 速干网眼：轻、有弹性、回弹快，抖动干脆
+        stiffness: 0.48, maxStretch: 1.55, damping: 0.050, mass: 12.0, meshRes: 30, maxDrag: 0.8, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.02, plThreshold: 1.18, plRecovery: 0.010, plMax: 1.4,
+        bend: 0.18, shear: 0.85, stiffX: 1.00, stiffY: 1.00, springDamp: 0.03,
+        windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.70,
+        collFric: 0.45, dragStr: 0.45, airExp: 0.16, maxVel: 0.34, velRet: 1.0
+    },
 
-    // ================= 厚重、硬挺、有质感 =================
+    // ==========================================================
+    // 厚重 / 硬挺 / 工业面料
+    // ==========================================================
     denim: {
-        // 牛仔：沉甸甸的，拉扯时阻力极大，高阻尼防抖
-        stiffness: 0.8, maxStretch: 1.1, damping: 0.12, mass: 75.0, meshRes: 32, maxDrag: 0.4, iterations: 10, hz: 120,
+        // 牛仔：沉、硬、拉扯阻力大，裤脚能立住
+        stiffness: 0.80, maxStretch: 1.10, damping: 0.125, mass: 75.0, meshRes: 30, maxDrag: 0.4, iterations: 10, hz: 110,
         plasticity: false, plRate: 0.03, plThreshold: 1.05, plRecovery: 0.002, plMax: 1.8,
-        bend: 0.55, shear: 1.3, stiffX: 1.2, stiffY: 1.1, springDamp: 0.06,
-        windSpatial: 4.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.9,
+        bend: 0.55, shear: 1.30, stiffX: 1.20, stiffY: 1.10, springDamp: 0.06,
+        windSpatial: 4.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.90,
         collFric: 0.70, dragStr: 0.30, airExp: 0.28, maxVel: 0.25, velRet: 1.0
     },
     canvas: {
-        // 帆布：最厚重的日常布料，极度挺括，像帐篷
-        stiffness: 0.9, maxStretch: 1.05, damping: 0.12, mass: 100.0, meshRes: 40, maxDrag: 0.3, iterations: 10, hz: 120,
+        // 帆布：最厚重的日常布料，像帐篷布
+        stiffness: 0.90, maxStretch: 1.05, damping: 0.120, mass: 100.0, meshRes: 32, maxDrag: 0.3, iterations: 10, hz: 110,
         plasticity: false, plRate: 0.06, plThreshold: 1.03, plRecovery: 0.001, plMax: 2.0,
-        bend: 0.7, shear: 1.4, stiffX: 1.3, stiffY: 1.3, springDamp: 0.08,
+        bend: 0.70, shear: 1.40, stiffX: 1.30, stiffY: 1.30, springDamp: 0.08,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
-        collFric: 0.70, dragStr: 0.28, airExp: 0.30, maxVel: 0.22, velRet: 1.0
+        collFric: 0.72, dragStr: 0.28, airExp: 0.30, maxVel: 0.22, velRet: 1.0
+    },
+    vinyl_banner: {
+        // 🖨 喷绘布：PVC 广告布，厚、硬、有一定"板感"，拉过头会留下永久形变
+        stiffness: 0.72, maxStretch: 1.12, damping: 0.135, mass: 90.0, meshRes: 30, maxDrag: 0.35, iterations: 10, hz: 110,
+        plasticity: true, plRate: 0.045, plThreshold: 1.08, plRecovery: 0.0008, plMax: 2.2,
+        bend: 0.55, shear: 1.35, stiffX: 1.25, stiffY: 1.20, springDamp: 0.08,
+        windSpatial: 4.2, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.90,
+        collFric: 0.72, dragStr: 0.30, airExp: 0.26, maxVel: 0.22, velRet: 1.0
+    },
+    awning: {
+        // 遮阳篷布：亚克力涂层布，硬挺、耐候、风里不太飘
+        stiffness: 0.74, maxStretch: 1.14, damping: 0.140, mass: 80.0, meshRes: 26, maxDrag: 0.3, iterations: 10, hz: 110,
+        plasticity: false, plRate: 0.04, plThreshold: 1.05, plRecovery: 0.002, plMax: 1.8,
+        bend: 0.50, shear: 1.30, stiffX: 1.20, stiffY: 1.15, springDamp: 0.09,
+        windSpatial: 4.2, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.90,
+        collFric: 0.75, dragStr: 0.28, airExp: 0.28, maxVel: 0.22, velRet: 1.0
+    },
+    burlap: {
+        // 麻袋布：粗糙、沉、几乎不回弹，越拖越"涩"
+        stiffness: 0.82, maxStretch: 1.10, damping: 0.170, mass: 110.0, meshRes: 26, maxDrag: 0.3, iterations: 10, hz: 110,
+        plasticity: true, plRate: 0.08, plThreshold: 1.06, plRecovery: 0.0005, plMax: 2.0,
+        bend: 0.60, shear: 1.50, stiffX: 1.20, stiffY: 1.15, springDamp: 0.12,
+        windSpatial: 3.8, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
+        collFric: 0.90, dragStr: 0.25, airExp: 0.32, maxVel: 0.20, velRet: 1.0
+    },
+    straw_mat: {
+        // 草编席：硬、脆、几乎不弯，弯了会留折痕
+        stiffness: 0.95, maxStretch: 1.03, damping: 0.110, mass: 65.0, meshRes: 22, maxDrag: 0.2, iterations: 10, hz: 110,
+        plasticity: true, plRate: 0.03, plThreshold: 1.02, plRecovery: 0.0, plMax: 1.5,
+        bend: 0.90, shear: 1.90, stiffX: 1.25, stiffY: 1.25, springDamp: 0.10,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.90,
+        collFric: 0.80, dragStr: 0.20, airExp: 0.30, maxVel: 0.20, velRet: 1.0
     },
     leather: {
-        // 皮革：非常重，有柔韧性但不易变形，有极度真实的塑性（拉扯后不会完全弹回）
-        stiffness: 0.85, maxStretch: 1.15, damping: 0.15, mass: 90.0, meshRes: 36, maxDrag: 0.4, iterations: 10, hz: 120,
-        plasticity: true, plRate: 0.05, plThreshold: 1.1, plRecovery: 0.0005, plMax: 2.5,
-        bend: 0.6, shear: 1.4, stiffX: 1.3, stiffY: 1.3, springDamp: 0.1,
-        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.9,
+        // 皮革：重、韧、拉扯后不会完全回到原样
+        stiffness: 0.85, maxStretch: 1.15, damping: 0.155, mass: 90.0, meshRes: 30, maxDrag: 0.4, iterations: 10, hz: 110,
+        plasticity: true, plRate: 0.05, plThreshold: 1.10, plRecovery: 0.0005, plMax: 2.5,
+        bend: 0.60, shear: 1.40, stiffX: 1.30, stiffY: 1.30, springDamp: 0.10,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.90,
         collFric: 0.75, dragStr: 0.28, airExp: 0.30, maxVel: 0.25, velRet: 1.0
     },
+    suede: {
+        // 麂皮：厚绒面，比皮革更软，形变留得住
+        stiffness: 0.78, maxStretch: 1.12, damping: 0.190, mass: 100.0, meshRes: 28, maxDrag: 0.35, iterations: 10, hz: 110,
+        plasticity: true, plRate: 0.06, plThreshold: 1.09, plRecovery: 0.0006, plMax: 2.4,
+        bend: 0.50, shear: 1.30, stiffX: 1.22, stiffY: 1.18, springDamp: 0.12,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.93,
+        collFric: 0.80, dragStr: 0.26, airExp: 0.32, maxVel: 0.22, velRet: 1.0
+    },
     metal: {
-        // 金属丝网：重且硬，下坠感极强
-        stiffness: 0.95, maxStretch: 1.1, damping: 0.2, mass: 120.0, meshRes: 32, maxDrag: 0.2, iterations: 10, hz: 120,
-        plasticity: true, plRate: 0.05, plThreshold: 1.1, plRecovery: 0.001, plMax: 1.5,
-        bend: 0.65, shear: 1.6, stiffX: 1.2, stiffY: 1.2, springDamp: 0.15,
+        // 金属丝网：重且硬，网格之间会"较劲"
+        stiffness: 0.95, maxStretch: 1.10, damping: 0.200, mass: 120.0, meshRes: 28, maxDrag: 0.2, iterations: 10, hz: 120,
+        plasticity: true, plRate: 0.05, plThreshold: 1.10, plRecovery: 0.001, plMax: 1.5,
+        bend: 0.65, shear: 1.60, stiffX: 1.20, stiffY: 1.20, springDamp: 0.15,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
         collFric: 0.80, dragStr: 0.25, airExp: 0.35, maxVel: 0.20, velRet: 1.0
     },
     metalsheet: {
-        // 铁皮：极重，不可拉伸，砸在地上会有硬碰硬的反馈
-        stiffness: 1.0, maxStretch: 1.05, damping: 0.25, mass: 150.0, meshRes: 20, maxDrag: 0.2, iterations: 12, hz: 120,
-        plasticity: true, plRate: 0.03, plThreshold: 1.1, plRecovery: 0, plMax: 2.5,
-        bend: 0.8, shear: 1.8, stiffX: 1.4, stiffY: 1.4, springDamp: 0.2,
+        // 铁皮：极重、几乎不可拉伸，砸下去"哐"一声
+        stiffness: 1.00, maxStretch: 1.04, damping: 0.250, mass: 150.0, meshRes: 20, maxDrag: 0.2, iterations: 12, hz: 120,
+        plasticity: true, plRate: 0.03, plThreshold: 1.06, plRecovery: 0.0, plMax: 2.5,
+        bend: 0.80, shear: 1.80, stiffX: 1.35, stiffY: 1.35, springDamp: 0.20,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
         collFric: 0.80, dragStr: 0.22, airExp: 0.35, maxVel: 0.18, velRet: 1.0
     },
 
-    // ================= 特殊材质 =================
+    // ==========================================================
+    // 橡胶 / 弹性体 / 特殊手感
+    // ==========================================================
     rubber: {
-        // 橡胶：重，但是极度拉伸，能拉长好几倍
-        stiffness: 0.2, maxStretch: 2.8, damping: 0.08, mass: 60.0, meshRes: 24, maxDrag: 2.0, iterations: 12, hz: 120,
-        plasticity: false, plRate: 0.001, plThreshold: 2.5, plRecovery: 0.05, plMax: 1.1,
-        bend: 0.1, shear: 0.4, stiffX: 1.0, stiffY: 1.0, springDamp: 0.15,
-        windSpatial: 3.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
+        // 橡胶：重，但能拉长好几倍，回弹"嗡"地一下
+        stiffness: 0.20, maxStretch: 2.80, damping: 0.080, mass: 60.0, meshRes: 24, maxDrag: 2.0, iterations: 12, hz: 110,
+        plasticity: false, plRate: 0.001, plThreshold: 2.50, plRecovery: 0.050, plMax: 1.1,
+        bend: 0.10, shear: 0.40, stiffX: 1.00, stiffY: 1.00, springDamp: 0.15,
+        windSpatial: 3.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.80,
         collFric: 0.50, dragStr: 0.50, airExp: 0.15, maxVel: 0.40, velRet: 1.0
     },
     silicone: {
-        // 硅胶布：非常重，有肉感，但不怎么变形
-        stiffness: 0.9, maxStretch: 1.1, damping: 0.18, mass: 110.0, meshRes: 30, maxDrag: 1.2, iterations: 10, hz: 120,
-        plasticity: false, plRate: 0.001, plThreshold: 2.0, plRecovery: 0.04, plMax: 1.2,
-        bend: 0.25, shear: 0.6, stiffX: 1.0, stiffY: 1.0, springDamp: 0.20,
-        windSpatial: 3.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
+        // 硅胶布：又重又有肉感，按下去会陷、会回
+        stiffness: 0.90, maxStretch: 1.10, damping: 0.180, mass: 110.0, meshRes: 28, maxDrag: 1.2, iterations: 10, hz: 110,
+        plasticity: false, plRate: 0.001, plThreshold: 2.00, plRecovery: 0.040, plMax: 1.2,
+        bend: 0.25, shear: 0.60, stiffX: 1.00, stiffY: 1.00, springDamp: 0.20,
+        windSpatial: 3.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.80,
         collFric: 0.55, dragStr: 0.45, airExp: 0.25, maxVel: 0.22, velRet: 1.0
     },
     neoprene: {
-        // 潜水料：厚重且具有极强的弹性
-        stiffness: 0.45, maxStretch: 1.8, damping: 0.12, mass: 70.0, meshRes: 24, maxDrag: 1.0, iterations: 10, hz: 100,
-        plasticity: false, plRate: 0.02, plThreshold: 1.5, plRecovery: 0.02, plMax: 1.5,
-        bend: 0.5, shear: 0.8, stiffX: 1.0, stiffY: 1.0, springDamp: 0.15,
-        windSpatial: 3.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
+        // 潜水料：厚、弹、有支撑，弯下去会自己顶回来
+        stiffness: 0.45, maxStretch: 1.80, damping: 0.120, mass: 70.0, meshRes: 24, maxDrag: 1.0, iterations: 10, hz: 100,
+        plasticity: false, plRate: 0.02, plThreshold: 1.50, plRecovery: 0.020, plMax: 1.5,
+        bend: 0.50, shear: 0.80, stiffX: 1.00, stiffY: 1.00, springDamp: 0.15,
+        windSpatial: 3.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.80,
         collFric: 0.60, dragStr: 0.45, airExp: 0.22, maxVel: 0.28, velRet: 1.0
     },
+    jelly: {
+        // 果冻：重、滑、duang duang 地晃，一碰就颤
+        stiffness: 0.15, maxStretch: 2.50, damping: 0.050, mass: 100.0, meshRes: 24, maxDrag: 2.5, iterations: 15, hz: 120,
+        plasticity: false, plRate: 0.001, plThreshold: 2.50, plRecovery: 0.060, plMax: 1.1,
+        bend: 0.05, shear: 0.20, stiffX: 1.00, stiffY: 1.00, springDamp: 0.15,
+        windSpatial: 3.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.50,
+        collFric: 0.45, dragStr: 0.55, airExp: 0.10, maxVel: 0.35, velRet: 1.0
+    },
+    foam: {
+        // EVA 泡棉：极轻、不拉伸、弯不塌，捏一下有气孔感
+        stiffness: 0.88, maxStretch: 1.04, damping: 0.090, mass: 10.0, meshRes: 24, maxDrag: 0.5, iterations: 9, hz: 100,
+        plasticity: true, plRate: 0.16, plThreshold: 1.02, plRecovery: 0.002, plMax: 2.0,
+        bend: 0.82, shear: 1.80, stiffX: 1.10, stiffY: 1.10, springDamp: 0.14,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.70,
+        collFric: 0.60, dragStr: 0.35, airExp: 0.18, maxVel: 0.24, velRet: 1.0
+    },
     paper: {
-        // 纸张：极轻，高刚性，一搓就皱（极大的塑性）
-        stiffness: 0.7, maxStretch: 1.02, damping: 0.08, mass: 5.0, meshRes: 16, maxDrag: 0.2, iterations: 6, hz: 80,
-        plasticity: true, plRate: 0.25, plThreshold: 1.01, plRecovery: 0, plMax: 2.0,
-        bend: 0.85, shear: 2.0, stiffX: 1.3, stiffY: 1.0, springDamp: 0.10,
-        windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.7,
+        // 纸张：轻、脆、一搓就皱，皱痕几乎不可逆
+        stiffness: 0.70, maxStretch: 1.03, damping: 0.110, mass: 6.0, meshRes: 16, maxDrag: 0.2, iterations: 6, hz: 80,
+        plasticity: true, plRate: 0.25, plThreshold: 1.01, plRecovery: 0.0, plMax: 2.0,
+        bend: 0.85, shear: 2.00, stiffX: 1.30, stiffY: 1.00, springDamp: 0.10,
+        windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.70,
         collFric: 0.50, dragStr: 0.30, airExp: 0.15, maxVel: 0.25, velRet: 1.0
     },
     plastic: {
-        // 塑料薄膜：极轻，微弹，易飘
-        stiffness: 0.4, maxStretch: 1.6, damping: 0.02, mass: 8.0, meshRes: 28, maxDrag: 1.5, iterations: 10, hz: 100,
+        // 塑料薄膜：极轻、微弹、噼里啪啦地飘
+        stiffness: 0.40, maxStretch: 1.60, damping: 0.020, mass: 8.0, meshRes: 28, maxDrag: 1.5, iterations: 10, hz: 100,
         plasticity: true, plRate: 0.12, plThreshold: 1.10, plRecovery: 0.001, plMax: 3.0,
-        bend: 0.15, shear: 0.4, stiffX: 1.0, stiffY: 1.0, springDamp: 0.02,
-        windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.6,
+        bend: 0.15, shear: 0.40, stiffX: 1.00, stiffY: 1.00, springDamp: 0.02,
+        windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.60,
         collFric: 0.40, dragStr: 0.50, airExp: 0.12, maxVel: 0.35, velRet: 1.0
     },
+    bubble_wrap: {
+        // 气泡膜：轻、脆、一按一个坑，坑会记住
+        stiffness: 0.52, maxStretch: 1.28, damping: 0.090, mass: 7.0, meshRes: 28, maxDrag: 0.8, iterations: 9, hz: 100,
+        plasticity: true, plRate: 0.20, plThreshold: 1.04, plRecovery: 0.0, plMax: 2.6,
+        bend: 0.30, shear: 1.10, stiffX: 1.00, stiffY: 1.00, springDamp: 0.03,
+        windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.60,
+        collFric: 0.45, dragStr: 0.40, airExp: 0.12, maxVel: 0.30, velRet: 1.0
+    },
     clingfilm: {
-        // 保鲜膜：轻，容易粘连（自碰撞摩擦极高），极易拉伸
-        stiffness: 0.6, maxStretch: 2.2, damping: 0.03, mass: 3.0, meshRes: 30, maxDrag: 2.0, iterations: 12, hz: 120,
-        plasticity: false, plRate: 0.03, plThreshold: 1.8, plRecovery: 0.005, plMax: 2.0,
-        bend: 0.1, shear: 0.5, stiffX: 1.0, stiffY: 1.0, springDamp: 0.03,
+        // 保鲜膜：轻、极滑、自己粘自己（自碰撞摩擦拉满）
+        stiffness: 0.62, maxStretch: 2.10, damping: 0.045, mass: 4.0, meshRes: 30, maxDrag: 1.8, iterations: 12, hz: 110,
+        plasticity: false, plRate: 0.03, plThreshold: 1.80, plRecovery: 0.005, plMax: 2.0,
+        bend: 0.10, shear: 0.50, stiffX: 1.00, stiffY: 1.00, springDamp: 0.03,
         windSpatial: 6.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
         collFric: 0.95, dragStr: 0.50, airExp: 0.10, maxVel: 0.30, velRet: 1.0
     },
-    jelly: {
-        // 果冻：重，低摩擦，duang duang的
-        stiffness: 0.15, maxStretch: 2.5, damping: 0.05, mass: 100.0, meshRes: 24, maxDrag: 2.5, iterations: 15, hz: 120,
-        plasticity: false, plRate: 0.001, plThreshold: 2.5, plRecovery: 0.06, plMax: 1.1,
-        bend: 0.05, shear: 0.2, stiffX: 1.0, stiffY: 1.0, springDamp: 0.15,
-        windSpatial: 3.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.5,
-        collFric: 0.45, dragStr: 0.55, airExp: 0.10, maxVel: 0.35, velRet: 1.0
+    // ==========================================================
+    // 与新增 PBR 法线贴图配套的面料
+    // ==========================================================
+    oxford: {
+        // 涂层牛津布：厚实平纹 + PU 涂层，挺而不僵
+        stiffness: 0.68, maxStretch: 1.18, damping: 0.100, mass: 55.0, meshRes: 28, maxDrag: 0.4, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.04, plThreshold: 1.06, plRecovery: 0.002, plMax: 1.8,
+        bend: 0.45, shear: 1.25, stiffX: 1.15, stiffY: 1.10, springDamp: 0.05,
+        windSpatial: 4.2, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.88,
+        collFric: 0.70, dragStr: 0.34, airExp: 0.26, maxVel: 0.24, velRet: 1.0
+    },
+    duck_canvas: {
+        // 防水帆布：蜡感涂层，比普通帆布更硬更沉
+        stiffness: 0.92, maxStretch: 1.06, damping: 0.150, mass: 120.0, meshRes: 26, maxDrag: 0.3, iterations: 10, hz: 110,
+        plasticity: false, plRate: 0.03, plThreshold: 1.03, plRecovery: 0.001, plMax: 1.6,
+        bend: 0.72, shear: 1.50, stiffX: 1.30, stiffY: 1.30, springDamp: 0.10,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
+        collFric: 0.78, dragStr: 0.26, airExp: 0.32, maxVel: 0.20, velRet: 1.0
+    },
+    sateen: {
+        // 贡缎：棉缎光泽面，滑、垂、几乎不留褶
+        stiffness: 0.45, maxStretch: 1.32, damping: 0.060, mass: 50.0, meshRes: 32, maxDrag: 0.7, iterations: 10, hz: 100,
+        plasticity: false, plRate: 0.03, plThreshold: 1.12, plRecovery: 0.005, plMax: 1.6,
+        bend: 0.10, shear: 0.80, stiffX: 1.00, stiffY: 1.00, springDamp: 0.02,
+        windSpatial: 4.6, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.60,
+        collFric: 0.45, dragStr: 0.48, airExp: 0.18, maxVel: 0.30, velRet: 1.0
+    },
+    jersey: {
+        // 平针针织：软、弹、贴手，拉扯后形变会留一点
+        stiffness: 0.40, maxStretch: 1.45, damping: 0.070, mass: 35.0, meshRes: 30, maxDrag: 0.7, iterations: 10, hz: 100,
+        plasticity: true, plRate: 0.07, plThreshold: 1.05, plRecovery: 0.004, plMax: 1.7,
+        bend: 0.12, shear: 0.75, stiffX: 1.00, stiffY: 0.95, springDamp: 0.03,
+        windSpatial: 4.8, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.70,
+        collFric: 0.55, dragStr: 0.46, airExp: 0.20, maxVel: 0.32, velRet: 1.0
+    },
+    rib_knit: {
+        // 罗纹针织：竖向条纹，横向弹性大、纵向挺
+        stiffness: 0.50, maxStretch: 1.35, damping: 0.080, mass: 40.0, meshRes: 30, maxDrag: 0.6, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.05, plThreshold: 1.08, plRecovery: 0.004, plMax: 1.6,
+        bend: 0.25, shear: 0.90, stiffX: 1.20, stiffY: 0.90, springDamp: 0.04,
+        windSpatial: 4.4, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.75,
+        collFric: 0.60, dragStr: 0.42, airExp: 0.22, maxVel: 0.28, velRet: 1.0
+    },
+    plisse: {
+        // 百褶布：折痕处很硬，压下去会自己立住
+        stiffness: 0.75, maxStretch: 1.08, damping: 0.080, mass: 40.0, meshRes: 30, maxDrag: 0.4, iterations: 10, hz: 100,
+        plasticity: true, plRate: 0.04, plThreshold: 1.04, plRecovery: 0.0, plMax: 1.8,
+        bend: 0.80, shear: 1.60, stiffX: 1.15, stiffY: 1.00, springDamp: 0.06,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.85,
+        collFric: 0.68, dragStr: 0.30, airExp: 0.24, maxVel: 0.24, velRet: 1.0
+    },
+    tweed: {
+        // 粗花呢：粗、硬、重，几乎不随风摆
+        stiffness: 0.72, maxStretch: 1.12, damping: 0.170, mass: 95.0, meshRes: 28, maxDrag: 0.4, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.04, plThreshold: 1.05, plRecovery: 0.0015, plMax: 1.7,
+        bend: 0.55, shear: 1.35, stiffX: 1.10, stiffY: 1.10, springDamp: 0.09,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.92,
+        collFric: 0.80, dragStr: 0.28, airExp: 0.30, maxVel: 0.22, velRet: 1.0
+    },
+    bamboo_mat: {
+        // 竹席：硬、脆，弯折会留下痕迹
+        stiffness: 0.95, maxStretch: 1.03, damping: 0.120, mass: 70.0, meshRes: 24, maxDrag: 0.2, iterations: 10, hz: 110,
+        plasticity: true, plRate: 0.03, plThreshold: 1.02, plRecovery: 0.0, plMax: 1.5,
+        bend: 0.90, shear: 1.90, stiffX: 1.30, stiffY: 1.30, springDamp: 0.10,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.90,
+        collFric: 0.80, dragStr: 0.22, airExp: 0.30, maxVel: 0.20, velRet: 1.0
+    },
+    tinfoil: {
+        // 锡箔：极轻、脆、一揉全是细褶，且回不去
+        stiffness: 0.60, maxStretch: 1.15, damping: 0.050, mass: 4.0, meshRes: 26, maxDrag: 0.5, iterations: 9, hz: 100,
+        plasticity: true, plRate: 0.30, plThreshold: 1.01, plRecovery: 0.0, plMax: 2.4,
+        bend: 0.35, shear: 0.90, stiffX: 1.00, stiffY: 1.00, springDamp: 0.03,
+        windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.60,
+        collFric: 0.40, dragStr: 0.50, airExp: 0.10, maxVel: 0.30, velRet: 1.0
+    },
+    cork: {
+        // 软木：厚、弹不起多少，弯折就裂
+        stiffness: 0.85, maxStretch: 1.05, damping: 0.200, mass: 45.0, meshRes: 24, maxDrag: 0.3, iterations: 9, hz: 100,
+        plasticity: true, plRate: 0.10, plThreshold: 1.02, plRecovery: 0.001, plMax: 1.6,
+        bend: 0.70, shear: 1.60, stiffX: 1.20, stiffY: 1.20, springDamp: 0.12,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
+        collFric: 0.85, dragStr: 0.24, airExp: 0.30, maxVel: 0.18, velRet: 1.0
+    },
+    devore: {
+        // 烧花绒：绒面被烧出花纹，轻、软、半透
+        stiffness: 0.35, maxStretch: 1.50, damping: 0.060, mass: 18.0, meshRes: 32, maxDrag: 0.9, iterations: 10, hz: 100,
+        plasticity: false, plRate: 0.03, plThreshold: 1.15, plRecovery: 0.006, plMax: 1.5,
+        bend: 0.06, shear: 0.60, stiffX: 1.00, stiffY: 1.00, springDamp: 0.02,
+        windSpatial: 5.2, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.55,
+        collFric: 0.42, dragStr: 0.50, airExp: 0.15, maxVel: 0.32, velRet: 1.0
+    },
+    perforated: {
+        // 打孔膜：有孔洞的硬质薄膜，拉伸时会从孔边起皱
+        stiffness: 0.80, maxStretch: 1.12, damping: 0.070, mass: 35.0, meshRes: 30, maxDrag: 0.5, iterations: 10, hz: 100,
+        plasticity: true, plRate: 0.08, plThreshold: 1.06, plRecovery: 0.002, plMax: 1.8,
+        bend: 0.60, shear: 1.50, stiffX: 1.20, stiffY: 1.20, springDamp: 0.05,
+        windSpatial: 4.4, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.85,
+        collFric: 0.65, dragStr: 0.32, airExp: 0.20, maxVel: 0.26, velRet: 1.0
+    },
+    mesh_banner: {
+        // 网格喷绘布：粗织网格，轻、韧、透一点风
+        stiffness: 0.65, maxStretch: 1.30, damping: 0.080, mass: 30.0, meshRes: 28, maxDrag: 0.6, iterations: 10, hz: 100,
+        plasticity: false, plRate: 0.03, plThreshold: 1.10, plRecovery: 0.004, plMax: 1.6,
+        bend: 0.30, shear: 1.20, stiffX: 1.10, stiffY: 1.05, springDamp: 0.04,
+        windSpatial: 4.6, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.80,
+        collFric: 0.60, dragStr: 0.40, airExp: 0.18, maxVel: 0.28, velRet: 1.0
+    },
+    habotai: {
+        // 电力纺：极薄的平纹真丝，垂坠如水
+        stiffness: 0.30, maxStretch: 1.48, damping: 0.030, mass: 6.0, meshRes: 34, maxDrag: 1.0, iterations: 10, hz: 100,
+        plasticity: false, plRate: 0.02, plThreshold: 1.18, plRecovery: 0.008, plMax: 1.4,
+        bend: 0.04, shear: 0.55, stiffX: 1.00, stiffY: 1.00, springDamp: 0.01,
+        windSpatial: 5.4, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.45,
+        collFric: 0.35, dragStr: 0.52, airExp: 0.12, maxVel: 0.36, velRet: 1.0
+    },
+    fishnet: {
+        // 渔网：大网眼 + 高弹性，一拉一整片变形
+        stiffness: 0.38, maxStretch: 1.90, damping: 0.035, mass: 6.0, meshRes: 28, maxDrag: 1.2, iterations: 11, hz: 100,
+        plasticity: false, plRate: 0.01, plThreshold: 1.40, plRecovery: 0.020, plMax: 1.4,
+        bend: 0.10, shear: 0.50, stiffX: 1.00, stiffY: 1.00, springDamp: 0.03,
+        windSpatial: 6.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.55,
+        collFric: 0.35, dragStr: 0.55, airExp: 0.12, maxVel: 0.36, velRet: 1.0
+    },
+    glitter_seqn: {
+        // 亮片布：亮片面硬、重，弯折时有"颗粒感"
+        stiffness: 0.78, maxStretch: 1.10, damping: 0.150, mass: 85.0, meshRes: 26, maxDrag: 0.35, iterations: 10, hz: 110,
+        plasticity: false, plRate: 0.03, plThreshold: 1.04, plRecovery: 0.001, plMax: 1.5,
+        bend: 0.60, shear: 1.50, stiffX: 1.15, stiffY: 1.15, springDamp: 0.10,
+        windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.90,
+        collFric: 0.78, dragStr: 0.26, airExp: 0.28, maxVel: 0.20, velRet: 1.0
+    },
+    fleece: {
+        // 抓绒：轻、蓬、阻尼大，抖起来像一团棉花
+        stiffness: 0.40, maxStretch: 1.40, damping: 0.160, mass: 30.0, meshRes: 28, maxDrag: 0.6, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.05, plThreshold: 1.06, plRecovery: 0.003, plMax: 1.8,
+        bend: 0.18, shear: 0.85, stiffX: 1.00, stiffY: 1.00, springDamp: 0.06,
+        windSpatial: 4.2, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.88,
+        collFric: 0.82, dragStr: 0.38, airExp: 0.30, maxVel: 0.24, velRet: 1.0
+    },
+    hook: {
+        // 钩编：镂空、有弹性，网眼间会互相拉扯
+        stiffness: 0.50, maxStretch: 1.55, damping: 0.060, mass: 20.0, meshRes: 28, maxDrag: 1.0, iterations: 10, hz: 100,
+        plasticity: false, plRate: 0.03, plThreshold: 1.20, plRecovery: 0.008, plMax: 1.5,
+        bend: 0.12, shear: 0.70, stiffX: 1.00, stiffY: 1.00, springDamp: 0.03,
+        windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.60,
+        collFric: 0.42, dragStr: 0.50, airExp: 0.15, maxVel: 0.32, velRet: 1.0
+    },
+    cable_knit: {
+        // 绞花针织：厚、密、抗弯强，抖起来是一整片
+        stiffness: 0.62, maxStretch: 1.25, damping: 0.130, mass: 60.0, meshRes: 30, maxDrag: 0.6, iterations: 10, hz: 100,
+        plasticity: false, plRate: 0.04, plThreshold: 1.07, plRecovery: 0.003, plMax: 1.7,
+        bend: 0.55, shear: 1.10, stiffX: 1.10, stiffY: 1.10, springDamp: 0.07,
+        windSpatial: 4.2, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.88,
+        collFric: 0.72, dragStr: 0.34, airExp: 0.25, maxVel: 0.24, velRet: 1.0
     }
-};
 
-const tearPresets = {
-    soft: 1.05,
-    normal: 1.20,
-    tough: 1.60,
-    metal: 3.00
 };
 
 const materialPresets = {
-    default: { light: 0.45, rough: 0.75, metal: 0.0, flat: false, opacity: 1.0, trans: 0, clear: 0, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0, sheenCol: "#ffffff", sheenRough: 0.5 },
-    cotton: { light: 0.5, rough: 1.0, metal: 0.0, flat: false, opacity: 1.0, trans: 0, clear: 0, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.4, sheenCol: "#ffffff", sheenRough: 0.8 },
-    silk: { light: 0.6, rough: 0.15, metal: 0.2, flat: false, opacity: 0.8, trans: 0, clear: 0.6, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.8, sheenCol: "#ffffff", sheenRough: 0.2 },
-    metal: { light: 0.8, rough: 0.4, metal: 1.0, flat: false, opacity: 1.0, trans: 0, clear: 0.2, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0, sheenCol: "#ffffff", sheenRough: 0.5 },
-    // 将 clear 改为 0，消除高光膜。适当增加 light 和 sheen，让皮革有真实的哑光和微绒感。
-leather: { light: 0.4, rough: 0.95, metal: 0.0, flat: false, opacity: 1.0, trans: 0, clear: 0.0, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.1, sheenCol: "#ffffff", sheenRough: 0.8 },
-    holographic: { light: 1.0, rough: 0.1, metal: 0.9, flat: false, opacity: 0.7, trans: 0, clear: 1.0, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 1.0, iridIor: 1.6, sheen: 0, sheenCol: "#ffffff", sheenRough: 0.5 },
-    gauze: { light: 0.6, rough: 0.85, metal: 0.1, flat: false, opacity: 0.35, trans: 0.5, clear: 0, ior: 1.5, thick: 0.1, atten: 2, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.3, sheenCol: "#ffffff", sheenRough: 0.8 },
-    chiffon: { light: 0.7, rough: 0.2, metal: 0.2, flat: false, opacity: 0.5, trans: 0.4, clear: 0.2, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.6, sheenCol: "#ffffff", sheenRough: 0.4 },
-    glass: { light: 0.8, rough: 0.05, metal: 0.9, flat: false, opacity: 1.0, trans: 1.0, clear: 1.0, ior: 1.5, thick: 0.5, atten: 1.5, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0, sheenCol: "#ffffff", sheenRough: 0.5 },
-    jelly: { light: 0.5, rough: 0.3, metal: 0.0, flat: false, opacity: 0.9, trans: 0.8, clear: 0.8, ior: 1.4, thick: 1.0, atten: 3, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0, sheenCol: "#ffffff", sheenRough: 0.5 },
-    film: { light: 0.9, rough: 0.1, metal: 0.6, flat: false, opacity: 0.2, trans: 0.2, clear: 1.0, ior: 1.6, thick: 0.1, atten: 0.5, attenCol: "#ffffff", irid: 0.4, iridIor: 1.4, sheen: 0, sheenCol: "#ffffff", sheenRough: 0.5 },
-    // ... 其他普通布料保持透明度和基础属性，clearcoat 给微弱的 0.1
-    tie_dye: { light: 0.55, rough: 0.75, metal: 0.0, flat: false, opacity: 1.0, trans: 0, clear: 0, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.2, sheenCol: "#ffffff", sheenRough: 0.6 },
-    batik: { light: 0.4, rough: 0.95, metal: 0.0, flat: false, opacity: 1.0, trans: 0, clear: 0, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.1, sheenCol: "#ffffff", sheenRough: 0.9 },
-    polyester: { light: 0.6, rough: 0.4, metal: 0.1, flat: false, opacity: 1.0, trans: 0, clear: 0.1, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.3, sheenCol: "#ffffff", sheenRough: 0.5 },
-    tr_blend: { light: 0.5, rough: 0.8, metal: 0.0, flat: false, opacity: 1.0, trans: 0, clear: 0, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.2, sheenCol: "#ffffff", sheenRough: 0.7 },
-    worsted_wool: { light: 0.4, rough: 0.95, metal: 0.0, flat: false, opacity: 1.0, trans: 0, clear: 0, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.5, sheenCol: "#ffffff", sheenRough: 0.8 },
-    washed_cotton: { light: 0.5, rough: 0.9, metal: 0.0, flat: false, opacity: 1.0, trans: 0, clear: 0, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.3, sheenCol: "#ffffff", sheenRough: 0.9 },
-    paper: { light: 0.6, rough: 1.0, metal: 0.0, flat: false, opacity: 1.0, trans: 0, clear: 0, ior: 1.5, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0, sheenCol: "#ffffff", sheenRough: 0.5 },
-    wet_cloth: { light: 0.8, rough: 0.2, metal: 0.3, flat: false, opacity: 0.9, trans: 0.1, clear: 0.5, ior: 1.33, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0, sheenCol: "#ffffff", sheenRough: 0.5 }
+    // 每一项：light 光照强度 / rough 粗糙度 / metal 金属度 / flat 面片
+    //        opacity 透明度 / trans 透射 / clear 清漆 / ior 折射率
+    //        thick 厚度 / atten 衰减距离 / attenCol 衰减颜色
+    //        irid 虹彩 / iridIor 虹彩折射率 / sheen 绒面光泽 / sheenCol 光泽色 / sheenRough 光泽粗糙
+    // ----------------------------------------------------------
+    // 日常布料：以 sheen / 高粗糙度为主，几乎没有金属感
+    // ----------------------------------------------------------
+    custom:     { light: 0.45, rough: 0.75, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0, sheenCol: "#ffffff", sheenRough: 0.5 },
+    default:    { light: 0.45, rough: 0.80, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.05, sheenCol: "#ffffff", sheenRough: 0.6 },
+    cotton:     { light: 0.50, rough: 0.95, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.35, sheenCol: "#ffffff", sheenRough: 0.85 },
+    washed_cotton: { light: 0.50, rough: 0.92, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.30, sheenCol: "#ffffff", sheenRough: 0.90 },
+    linen:      { light: 0.45, rough: 1.00, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.22, sheenCol: "#f6efe4", sheenRough: 0.95 },
+    wool:       { light: 0.40, rough: 1.00, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.55, sheenCol: "#ffffff", sheenRough: 0.92 },
+    velvet:     { light: 0.35, rough: 0.98, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 1.00, sheenCol: "#ffe9ef", sheenRough: 0.95 },
+    worsted_wool: { light: 0.40, rough: 0.96, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.45, sheenCol: "#ffffff", sheenRough: 0.85 },
+    tr_blend:   { light: 0.50, rough: 0.85, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.20, sheenCol: "#ffffff", sheenRough: 0.70 },
+    polyester:  { light: 0.58, rough: 0.44, metal: 0.04, flat: false, opacity: 1.0, trans: 0, clear: 0.06, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.34, sheenCol: "#ffffff", sheenRough: 0.62 },
+    nylon:      { light: 0.60, rough: 0.40, metal: 0.02, flat: false, opacity: 1.0, trans: 0, clear: 0.08, ior: 1.53, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.28, sheenCol: "#ffffff", sheenRough: 0.58 },
+    terry:      { light: 0.45, rough: 1.00, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.70, sheenCol: "#ffffff", sheenRough: 0.98 },
+    felt:       { light: 0.40, rough: 1.00, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.35, sheenCol: "#ffffff", sheenRough: 0.98 },
+    corduroy:   { light: 0.40, rough: 0.97, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.60, sheenCol: "#ffffff", sheenRough: 0.90 },
+    sherpa:     { light: 0.45, rough: 1.00, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.85, sheenCol: "#ffffff", sheenRough: 0.95 },
+    chenille:   { light: 0.35, rough: 1.00, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.75, sheenCol: "#ffffff", sheenRough: 0.96 },
+    mohair:     { light: 0.42, rough: 0.95, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.90, sheenCol: "#ffffff", sheenRough: 0.80 },
+    satin:      { light: 0.66, rough: 0.30, metal: 0.05, flat: false, opacity: 1.0, trans: 0, clear: 0.05, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.62, sheenCol: "#fff2f5", sheenRough: 0.38 },
+    taffeta:    { light: 0.58, rough: 0.40, metal: 0.03, flat: false, opacity: 1.0, trans: 0, clear: 0.05, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.46, sheenCol: "#ffffff", sheenRough: 0.46 },
+    organza:    { light: 0.65, rough: 0.35, metal: 0.10, flat: false, opacity: 0.45, trans: 0.25, clear: 0.00, ior: 1.50, thick: 0.10, atten: 1.5, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.35, sheenCol: "#ffffff", sheenRough: 0.40 },
+    tulle:      { light: 0.70, rough: 0.50, metal: 0.05, flat: false, opacity: 0.30, trans: 0.30, clear: 0.10, ior: 1.50, thick: 0.05, atten: 1.0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.30, sheenCol: "#ffffff", sheenRough: 0.60 },
+    lace:       { light: 0.60, rough: 0.60, metal: 0.00, flat: false, opacity: 0.50, trans: 0.20, clear: 0.10, ior: 1.50, thick: 0.05, atten: 1.0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.40, sheenCol: "#ffffff", sheenRough: 0.70 },
+    silk:       { light: 0.62, rough: 0.28, metal: 0.08, flat: false, opacity: 0.92, trans: 0.03, clear: 0.08, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.80, sheenCol: "#fff4f6", sheenRough: 0.42 },
+    chiffon:    { light: 0.70, rough: 0.20, metal: 0.20, flat: false, opacity: 0.50, trans: 0.40, clear: 0.05, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.60, sheenCol: "#ffffff", sheenRough: 0.40 },
+    gauze:      { light: 0.60, rough: 0.85, metal: 0.10, flat: false, opacity: 0.35, trans: 0.50, clear: 0.00, ior: 1.50, thick: 0.10, atten: 2.0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.30, sheenCol: "#ffffff", sheenRough: 0.85 },
+    flag:       { light: 0.60, rough: 0.55, metal: 0.05, flat: false, opacity: 1.0, trans: 0, clear: 0.10, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.30, sheenCol: "#ffffff", sheenRough: 0.55 },
+    spandex:    { light: 0.55, rough: 0.45, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.20, sheenCol: "#ffffff", sheenRough: 0.50 },
+    sportmesh:  { light: 0.60, rough: 0.60, metal: 0.05, flat: false, opacity: 1.0, trans: 0, clear: 0.10, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.20, sheenCol: "#ffffff", sheenRough: 0.60 },
+    denim:      { light: 0.45, rough: 0.90, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.20, sheenCol: "#ffffff", sheenRough: 0.80 },
+    canvas:     { light: 0.45, rough: 0.96, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.15, sheenCol: "#ffffff", sheenRough: 0.90 },
+    burlap:     { light: 0.40, rough: 1.00, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.20, sheenCol: "#f1e5cf", sheenRough: 1.00 },
+    tie_dye:    { light: 0.55, rough: 0.75, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.20, sheenCol: "#ffffff", sheenRough: 0.60 },
+    batik:      { light: 0.40, rough: 0.95, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.10, sheenCol: "#ffffff", sheenRough: 0.90 },
+
+    // ----------------------------------------------------------
+    // 涂层 / 工业料：有一点清漆和低粗糙度
+    // ----------------------------------------------------------
+    vinyl_banner: { light: 0.55, rough: 0.50, metal: 0.05, flat: false, opacity: 1.0, trans: 0, clear: 0.35, ior: 1.52, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0.08, iridIor: 1.35, sheen: 0.05, sheenCol: "#ffffff", sheenRough: 0.45 },
+    awning:     { light: 0.50, rough: 0.70, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.10, sheenCol: "#ffffff", sheenRough: 0.70 },
+    straw_mat:  { light: 0.45, rough: 0.95, metal: 0.00, flat: true,  opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.10, sheenCol: "#f3e7c9", sheenRough: 0.95 },
+    leather:    { light: 0.40, rough: 0.90, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.05, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.10, sheenCol: "#ffffff", sheenRough: 0.80 },
+    suede:      { light: 0.35, rough: 1.00, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.55, sheenCol: "#ffffff", sheenRough: 0.95 },
+    metal:      { light: 0.80, rough: 0.30, metal: 1.00, flat: false, opacity: 1.0, trans: 0, clear: 0.20, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.00, sheenCol: "#ffffff", sheenRough: 0.50 },
+    metalsheet: { light: 0.80, rough: 0.25, metal: 1.00, flat: false, opacity: 1.0, trans: 0, clear: 0.35, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.00, sheenCol: "#ffffff", sheenRough: 0.40 },
+    rubber:     { light: 0.45, rough: 0.80, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.10, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.00, sheenCol: "#ffffff", sheenRough: 0.60 },
+    silicone:   { light: 0.50, rough: 0.66, metal: 0.00, flat: false, opacity: 0.96, trans: 0.10, clear: 0.22, ior: 1.42, thick: 0.18, atten: 1.6, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.05, sheenCol: "#ffffff", sheenRough: 0.60 },
+    neoprene:   { light: 0.45, rough: 0.85, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.08, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.05, sheenCol: "#ffffff", sheenRough: 0.75 },
+    foam:       { light: 0.52, rough: 0.94, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.34, sheenCol: "#ffffff", sheenRough: 0.94 },
+    paper:      { light: 0.60, rough: 0.95, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.00, sheenCol: "#ffffff", sheenRough: 0.50 },
+    plastic:    { light: 0.66, rough: 0.34, metal: 0.02, flat: false, opacity: 0.86, trans: 0.12, clear: 0.38, ior: 1.55, thick: 0.08, atten: 1.2, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.00, sheenCol: "#ffffff", sheenRough: 0.42 },
+    bubble_wrap: { light: 0.64, rough: 0.30, metal: 0.02, flat: false, opacity: 0.82, trans: 0.28, clear: 0.40, ior: 1.50, thick: 0.12, atten: 0.8, attenCol: "#ffffff", irid: 0.18, iridIor: 1.42, sheen: 0.00, sheenCol: "#ffffff", sheenRough: 0.40 },
+    clingfilm:  { light: 0.74, rough: 0.17, metal: 0.03, flat: false, opacity: 0.38, trans: 0.42, clear: 0.55, ior: 1.55, thick: 0.04, atten: 0.5, attenCol: "#ffffff", irid: 0.14, iridIor: 1.38, sheen: 0.00, sheenCol: "#ffffff", sheenRough: 0.30 },
+
+    // ----------------------------------------------------------
+    // 光学 / 特殊
+    // ----------------------------------------------------------
+    glass:      { light: 0.80, rough: 0.05, metal: 0.00, flat: false, opacity: 1.0, trans: 1.00, clear: 1.00, ior: 1.52, thick: 0.50, atten: 1.5, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.00, sheenCol: "#ffffff", sheenRough: 0.50 },
+    jelly:      { light: 0.52, rough: 0.34, metal: 0.00, flat: false, opacity: 0.92, trans: 0.78, clear: 0.55, ior: 1.40, thick: 0.90, atten: 2.4, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.00, sheenCol: "#ffffff", sheenRough: 0.55 },
+    film:       { light: 0.84, rough: 0.20, metal: 0.22, flat: false, opacity: 0.22, trans: 0.22, clear: 0.62, ior: 1.58, thick: 0.08, atten: 0.5, attenCol: "#ffffff", irid: 0.30, iridIor: 1.42, sheen: 0.00, sheenCol: "#ffffff", sheenRough: 0.55 },
+    holographic: { light: 0.92, rough: 0.26, metal: 0.70, flat: false, opacity: 0.78, trans: 0, clear: 0.62, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0.85, iridIor: 1.55, sheen: 0.00, sheenCol: "#ffffff", sheenRough: 0.45 },
+    wet_cloth:  { light: 0.70, rough: 0.30, metal: 0.06, flat: false, opacity: 0.92, trans: 0.08, clear: 0.30, ior: 1.33, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.26, sheenCol: "#ffffff", sheenRough: 0.40 },
+    // ---- 与新增法线贴图配套的材质 ----
+    oxford:      { light: 0.55, rough: 0.65, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.10, ior: 1.52, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.15, sheenCol: "#ffffff", sheenRough: 0.65 },
+    duck_canvas: { light: 0.45, rough: 0.92, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.12, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.10, sheenCol: "#ffffff", sheenRough: 0.90 },
+    sateen:      { light: 0.64, rough: 0.32, metal: 0.04, flat: false, opacity: 1.0, trans: 0, clear: 0.05, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.56, sheenCol: "#fdf3f5", sheenRough: 0.40 },
+    jersey:      { light: 0.50, rough: 0.88, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.55, sheenCol: "#ffffff", sheenRough: 0.85 },
+    rib_knit:    { light: 0.45, rough: 0.92, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.60, sheenCol: "#ffffff", sheenRough: 0.88 },
+    plisse:      { light: 0.55, rough: 0.55, metal: 0.05, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.25, sheenCol: "#ffffff", sheenRough: 0.55 },
+    tweed:       { light: 0.40, rough: 1.00, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.45, sheenCol: "#f5efe6", sheenRough: 0.95 },
+    bamboo_mat:  { light: 0.50, rough: 0.45, metal: 0.05, flat: true,  opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.15, sheenCol: "#f2e8cf", sheenRough: 0.50 },
+    tinfoil:     { light: 0.88, rough: 0.36, metal: 0.95, flat: false, opacity: 1.0, trans: 0, clear: 0.25, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0.12, iridIor: 1.42, sheen: 0.00, sheenCol: "#ffffff", sheenRough: 0.45 },
+    cork:        { light: 0.45, rough: 1.00, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.15, sheenCol: "#e9dcc3", sheenRough: 1.00 },
+    devore:      { light: 0.55, rough: 0.55, metal: 0.00, flat: false, opacity: 0.80, trans: 0.25, clear: 0.05, ior: 1.50, thick: 0.05, atten: 1.5, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.70, sheenCol: "#ffffff", sheenRough: 0.75 },
+    perforated:  { light: 0.66, rough: 0.46, metal: 0.06, flat: false, opacity: 0.62, trans: 0.18, clear: 0.22, ior: 1.55, thick: 0.05, atten: 0.8, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.06, sheenCol: "#ffffff", sheenRough: 0.48 },
+    mesh_banner: { light: 0.70, rough: 0.40, metal: 0.05, flat: false, opacity: 0.88, trans: 0.05, clear: 0.00, ior: 1.54, thick: 0.02, atten: 2.0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.10, sheenCol: "#ffffff", sheenRough: 0.45 },
+    habotai:     { light: 0.64, rough: 0.30, metal: 0.03, flat: false, opacity: 0.90, trans: 0.08, clear: 0.05, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.78, sheenCol: "#fff6f7", sheenRough: 0.45 },
+    fishnet:     { light: 0.74, rough: 0.38, metal: 0.06, flat: false, opacity: 0.30, trans: 0.62, clear: 0.08, ior: 1.52, thick: 0.05, atten: 3.0, attenCol: "#eef2ff", irid: 0, iridIor: 1.3, sheen: 0.08, sheenCol: "#ffffff", sheenRough: 0.42 },
+    glitter_seqn:{ light: 0.72, rough: 0.34, metal: 0.45, flat: false, opacity: 1.0, trans: 0, clear: 0.08, ior: 1.55, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0.55, iridIor: 1.50, sheen: 0.05, sheenCol: "#ffffff", sheenRough: 0.55 },
+    fleece:      { light: 0.42, rough: 1.00, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.85, sheenCol: "#ffffff", sheenRough: 0.98 },
+    hook:        { light: 0.55, rough: 0.85, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.50, sheenCol: "#ffffff", sheenRough: 0.85 },
+    cable_knit:  { light: 0.40, rough: 0.95, metal: 0.00, flat: false, opacity: 1.0, trans: 0, clear: 0.00, ior: 1.50, thick: 0, atten: 0, attenCol: "#ffffff", irid: 0, iridIor: 1.3, sheen: 0.65, sheenCol: "#ffffff", sheenRough: 0.90 },
 };
 
 const windPresets = {
-    breeze: { strength: 0.3, dir: 0, noiseAmp: 0.4, random: 0.5, speed: 1.6 },
-    gentle: { strength: 0.8, dir: 45, noiseAmp: 0.6, random: 0.7, speed: 2.0 },
-    strong: { strength: 1.5, dir: 90, noiseAmp: 0.8, random: 0.4, speed: 3.0 },
-    gale: { strength: 2.0, dir: 135, noiseAmp: 1.0, random: 0.9, speed: 4.0 }
+    still:   { strength: 0.10, dir: 0,   noiseAmp: 0.25, random: 0.35, speed: 1.0 },
+    breeze:  { strength: 0.30, dir: 0,   noiseAmp: 0.40, random: 0.50, speed: 1.6 },
+    gentle:  { strength: 0.80, dir: 45,  noiseAmp: 0.60, random: 0.70, speed: 2.0 },
+    strong:  { strength: 1.50, dir: 90,  noiseAmp: 0.80, random: 0.40, speed: 3.0 },
+    gale:    { strength: 2.00, dir: 135, noiseAmp: 1.00, random: 0.90, speed: 4.0 },
+    storm:   { strength: 2.60, dir: 160, noiseAmp: 1.00, random: 1.00, speed: 5.0 },
+    updraft: { strength: 1.20, dir: 90,  noiseAmp: 0.55, random: 0.65, speed: 2.4 },
+    downdraft: { strength: 0.90, dir: 270, noiseAmp: 0.45, random: 0.55, speed: 1.8 },
+    fluttering: { strength: 0.70, dir: 0, noiseAmp: 0.95, random: 0.85, speed: 4.2 },
+    calm_pulse: { strength: 0.55, dir: 30, noiseAmp: 0.30, random: 0.20, speed: 0.8 }
 };
 
 const collisionPresets = {
-    perf: { radius: 0.8, force: 0.5, iters: 1 },
-    balance: { radius: 0.9, force: 0.8, iters: 2 },
-    quality: { radius: 1.1, force: 1.0, iters: 3 }
+    perf:    { radius: 0.75, force: 0.45, iters: 1 },
+    soft:    { radius: 0.85, force: 0.65, iters: 2 },
+    balance: { radius: 0.95, force: 0.85, iters: 2 },
+    quality: { radius: 1.10, force: 1.00, iters: 3 },
+    hard:    { radius: 1.25, force: 1.35, iters: 4 }
+};
+
+const tearPresets = {
+    tofu:   1.02,
+    soft:   1.05,
+    normal: 1.20,
+    tough:  1.60,
+    metal:  3.00
 };
 
 const zoomSlider = document.getElementById("zoom");
@@ -1022,6 +1470,8 @@ window.addEventListener('languageChanged', () => {
 
 pauseBtn.onclick = () => {
     isSimulating = !isSimulating;
+    // 🪶 恢复解算时唤醒低配求解器，避免它停在休眠状态"看起来没反应"
+    if (isSimulating && cloth) cloth.wake();
     if (isSimulating) {
         pauseBtn.innerHTML = `<i class="fa-solid fa-pause"></i> <span>${window.I18N[window.currentLang].btn_pause}</span>`;
         pauseBtn.classList.remove("btn-warning");
@@ -1102,6 +1552,8 @@ function applyHistoryState(state) {
     }
     clearSelection();
     redrawPreview();
+    // 🪶 撤销/重做改动了弹簧断裂状态，唤醒低配求解器重新解算
+    if (cloth) cloth.wake();
 }
 
 undoBtn.onclick = () => {
@@ -1233,7 +1685,7 @@ function updateSelectedDecor3D() {
     const d3D = decorations[selectedDecorIndex];
 
     // 1. 从场景中移除旧模型并清理内存
-    scene.remove(d3D.mesh);
+    detachFromScene(d3D.mesh);
     d3D.mesh.traverse(child => {
         if (child.isMesh) {
             child.geometry.dispose();
@@ -1305,7 +1757,7 @@ function rebuildAllDecorations3D() {
 
     // 1. 彻底清除旧模型
     decorations.forEach(d => {
-        scene.remove(d.mesh);
+        detachFromScene(d.mesh);
         d.mesh.traverse(child => {
             if (child.isMesh) {
                 child.geometry.dispose();
@@ -1330,7 +1782,7 @@ function rebuildAllDecorations3D() {
         const pIndex = iy * (cloth.resX + 1) + ix;
 
         const mesh = create3DDecorMesh(d.type, d.color, d.mat, d.size);
-        scene.add(mesh);
+        (sceneHolder || scene).add(mesh);
         decorations.push({
             mesh: mesh,
             particleIndex: pIndex,
@@ -1388,7 +1840,230 @@ btnDeleteSelected.onclick = () => {
 
 decorSizeSlider.oninput = () => { decorSizeValue.textContent = parseFloat(decorSizeSlider.value).toFixed(1); };
 
-// 一键把预设套用到所有物理滑块（原有 + 新扩展）
+// ==============================================================
+// 🧵 预设下拉框：从数据表生成选项（分组 + i18n 文案集中在下面两处）
+// 说明：HTML 里只留一个空 <select>，选项全部由这里生成，
+//       这样以后加面料只要改 PHYSICS_GROUPS / physicsPresets 两处。
+// ==============================================================
+const PHYSICS_GROUPS = [
+    { titleKey: "preset_group_daily", items: ["cotton", "washed_cotton", "linen", "wool", "velvet", "worsted_wool", "tr_blend", "polyester", "nylon", "terry", "felt", "corduroy", "sherpa", "chenille", "mohair", "satin", "sateen", "taffeta", "organza", "tulle", "lace", "silk", "habotai", "chiffon", "gauze", "spidersilk", "flag", "spandex", "sportmesh", "jersey", "rib_knit", "plisse", "tweed", "devore", "fleece", "hook", "cable_knit"] },
+    { titleKey: "preset_group_heavy", items: ["denim", "canvas", "duck_canvas", "oxford", "vinyl_banner", "mesh_banner", "awning", "burlap", "straw_mat", "bamboo_mat", "leather", "suede", "metal", "metalsheet", "glitter_seqn", "tinfoil", "cork", "perforated"] },
+    { titleKey: "preset_group_special", items: ["rubber", "silicone", "neoprene", "jelly", "foam", "paper", "plastic", "bubble_wrap", "clingfilm", "fishnet"] }
+];
+
+// 没加载到 i18n 时的兜底文字（正常运行时会被 i18n 覆盖）
+const PRESET_TEXT_FALLBACK = {
+    preset_group_daily: "日常服装面料",
+    preset_group_heavy: "厚重 / 工业面料",
+    preset_group_special: "橡胶 / 弹性体 / 特殊手感",
+    preset_custom: "自定义"
+};
+
+function presetLabel(key) {
+    const dict = (window.I18N && window.I18N[window.currentLang || "zh"]) || {};
+    return dict["preset_" + key] || PRESET_TEXT_FALLBACK["preset_" + key] || key;
+}
+
+function fillPhysicsPresetOptions() {
+    if (!physicsPresetSelect) return;
+    const prev = physicsPresetSelect.value;
+    physicsPresetSelect.innerHTML = "";
+    const opCustom = document.createElement("option");
+    opCustom.value = "custom";
+    opCustom.textContent = presetLabel("custom");
+    physicsPresetSelect.appendChild(opCustom);
+    for (const group of PHYSICS_GROUPS) {
+        const og = document.createElement("optgroup");
+        og.label = presetText(group.titleKey, PRESET_TEXT_FALLBACK[group.titleKey] || group.titleKey);
+        for (const key of group.items) {
+            if (!physicsPresets[key]) continue;
+            const op = document.createElement("option");
+            op.value = key;
+            op.textContent = presetLabel(key);
+            og.appendChild(op);
+        }
+        physicsPresetSelect.appendChild(og);
+    }
+    physicsPresetSelect.value = prev || "custom";
+}
+
+// 换语言后把下拉框文字重刷一遍
+window.addEventListener("languageChanged", () => {
+    // optgroup 的 label 是属性不是文本，重建下拉框才能一起换语言
+    fillPhysicsPresetOptions();
+    if (typeof fillMaterialPresetOptions === "function") fillMaterialPresetOptions();
+    if (typeof fillWindPresetOptions === "function") fillWindPresetOptions();
+    if (typeof fillCollisionPresetOptions === "function") fillCollisionPresetOptions();
+    if (typeof fillTearPresetOptions === "function") fillTearPresetOptions();
+    if (typeof fillTextureFilterOptions === "function") fillTextureFilterOptions();
+    if (typeof fillPbrTextureOptions === "function") fillPbrTextureOptions();
+    if (typeof fillPbrNoiseOptions === "function") fillPbrNoiseOptions();
+fillPbrNoiseOptions();
+});
+
+// ==============================================================
+// 💨 风力 / 碰撞 / 撕扯：同样由数据表生成下拉框
+// ==============================================================
+function presetText(key, fallback) {
+    const dict = (window.I18N && window.I18N[window.currentLang || "zh"]) || {};
+    return dict[key] || fallback;
+}
+
+function fillWindPresetOptions() {
+    if (!windPresetSelect) return;
+    const prev = windPresetSelect.value;
+    windPresetSelect.innerHTML = "";
+    const opCustom = document.createElement("option");
+    opCustom.value = "custom";
+    opCustom.textContent = presetText("wind_custom", "自定义");
+    windPresetSelect.appendChild(opCustom);
+    for (const key of Object.keys(windPresets)) {
+        const op = document.createElement("option");
+        op.value = key;
+        op.textContent = presetText("wind_" + key, key);
+        windPresetSelect.appendChild(op);
+    }
+    windPresetSelect.value = prev || "custom";
+}
+
+function fillCollisionPresetOptions() {
+    if (!collisionPresetSelect) return;
+    const prev = collisionPresetSelect.value;
+    collisionPresetSelect.innerHTML = "";
+    const opCustom = document.createElement("option");
+    opCustom.value = "custom";
+    opCustom.textContent = presetText("collision_custom", "自定义");
+    collisionPresetSelect.appendChild(opCustom);
+    for (const key of Object.keys(collisionPresets)) {
+        const op = document.createElement("option");
+        op.value = key;
+        op.textContent = presetText("collision_" + key, key);
+        collisionPresetSelect.appendChild(op);
+    }
+    collisionPresetSelect.value = prev || "custom";
+}
+
+function fillTearPresetOptions() {
+    if (!tearPresetSelect) return;
+    const prev = tearPresetSelect.value;
+    tearPresetSelect.innerHTML = "";
+    const opCustom = document.createElement("option");
+    opCustom.value = "custom";
+    opCustom.textContent = presetText("tear_preset_custom", "自定义");
+    tearPresetSelect.appendChild(opCustom);
+    for (const key of Object.keys(tearPresets)) {
+        const op = document.createElement("option");
+        op.value = key;
+        op.textContent = presetText("tear_preset_" + key, key);
+        tearPresetSelect.appendChild(op);
+    }
+
+    // 撕扯阈值需要显示两位小数（1.02 这种）
+    tearPresetSelect.value = prev || "custom";
+}
+
+// ============================================================
+// 🎛 纹理滤镜 & PBR 纹理：数据表（选项 + 分组），由代码生成下拉框
+// ============================================================
+const TEXTURE_FILTER_OPTIONS = [
+    "none", "tie_dye", "batik", "silk", "vintage", "denim", "ink", "holographic",
+    "sun_faded", "wet_stain", "knit_grain", "film_grain"
+];
+
+const PBR_TEXTURE_GROUPS = [
+    { titleKey: "pbr_group_basic", items: ["none", "weave", "square_weave", "stripe", "twill", "herringbone", "basket", "knit", "corduroy", "flax", "cashmere", "noise", "stone"] },
+    { titleKey: "pbr_group_fabric", items: ["washed_cotton", "polyester", "tr_blend", "worsted_wool", "batik", "tie_dye", "gauze", "felt", "fluff", "leather", "real_leather", "suede", "wrinkle", "diamond", "puffyQuilt", "vinyl_banner", "bubble_wrap", "plastic_wrap", "rice_paper", "carbon", "oxford", "sateen", "jersey", "rib_knit", "cable_knit", "hook", "plisse", "tweed", "devore", "glitter", "fleece", "habotai", "silk_habotai"] },
+    { titleKey: "pbr_group_mesh", items: ["mesh", "mesh_solid", "hex", "hex_solid", "tulle", "mesh_fine", "fishnet"] },
+    { titleKey: "pbr_group_special", items: ["duck_canvas", "banner_mesh", "aluminium", "bamboo", "cork", "perforated"] }
+];
+
+function fillTextureFilterOptions() {
+    if (!textureFilterSelect) return;
+    const prev = textureFilterSelect.value;
+    textureFilterSelect.innerHTML = "";
+    for (const key of TEXTURE_FILTER_OPTIONS) {
+        const op = document.createElement("option");
+        op.value = key;
+        op.textContent = presetText("filter_" + key, key);
+        textureFilterSelect.appendChild(op);
+    }
+    textureFilterSelect.value = prev || "none";
+}
+
+function fillPbrTextureOptions() {
+    if (!pbrTextureSelect) return;
+    const prev = pbrTextureSelect.value;
+    pbrTextureSelect.innerHTML = "";
+    for (const group of PBR_TEXTURE_GROUPS) {
+        const og = document.createElement("optgroup");
+        og.label = presetText(group.titleKey, group.titleKey);
+        for (const key of group.items) {
+            const op = document.createElement("option");
+            op.value = key;
+            op.textContent = presetText("pbr_" + key, key);
+            og.appendChild(op);
+        }
+        pbrTextureSelect.appendChild(og);
+    }
+    if (prev) pbrTextureSelect.value = prev;
+}// 🌫 PBR 叠加噪波的风格表（与 createNoiseNormalMap 里的分支一一对应）
+const PBR_NOISE_STYLES = [
+    { key: "sand", textKey: "pbr_noise_sand" },
+    { key: "fiber", textKey: "pbr_noise_fiber" },
+    { key: "cloud", textKey: "pbr_noise_cloud" },
+    { key: "crack", textKey: "pbr_noise_crack" },
+    { key: "ripple", textKey: "pbr_noise_ripple" },
+    { key: "cellular", textKey: "pbr_noise_cellular" },
+    { key: "wood", textKey: "pbr_noise_wood" },
+    { key: "marble", textKey: "pbr_noise_marble" },
+    { key: "rusty", textKey: "pbr_noise_rusty" },
+    { key: "weaveNode", textKey: "pbr_noise_weave_node" },
+    { key: "quilted", textKey: "pbr_noise_quilted" },
+    { key: "velvet_pile", textKey: "pbr_noise_velvet_pile" },
+    { key: "corduroy_soft", textKey: "pbr_noise_corduroy" },
+    { key: "mesh_fine", textKey: "pbr_noise_mesh_fine" },
+    { key: "hook", textKey: "pbr_noise_hook" },
+    { key: "cable_knit", textKey: "pbr_noise_cable_knit" },
+    { key: "snake", textKey: "pbr_noise_snake" },
+    { key: "leaves", textKey: "pbr_noise_leaves" },
+    { key: "camouflage", textKey: "pbr_noise_camouflage" },
+    { key: "rain_streak", textKey: "pbr_noise_rain" },
+    { key: "sandstone", textKey: "pbr_noise_sandstone" },
+    { key: "crumple", textKey: "pbr_noise_crumple" },
+    { key: "glitter", textKey: "pbr_noise_glitter" },
+    { key: "honeycomb", textKey: "pbr_noise_honeycomb" },
+    { key: "fleece", textKey: "pbr_noise_fleece" }
+];
+
+function fillPbrNoiseOptions() {
+    if (!pbrNoiseStyleSelect) return;
+    const prev = pbrNoiseStyleSelect.value;
+    pbrNoiseStyleSelect.innerHTML = "";
+    for (const s of PBR_NOISE_STYLES) {
+        const op = document.createElement("option");
+        op.value = s.key;
+        op.textContent = presetText(s.textKey, s.key);
+        pbrNoiseStyleSelect.appendChild(op);
+    }
+    pbrNoiseStyleSelect.value = prev || "sand";
+}
+
+
+// 把预设对应的基准旋转写到三个旋转滑块上（布料已生成时才动）
+function applyRestPose(presetKey) {
+    if (!cloth || !cloth.particles) return;
+    const pose = REST_POSE[presetKey];
+    if (!pose) return;
+    if (!rotXSlider || !rotYSlider || !rotZSlider) return;
+    rotXSlider.value = pose.x; rotYSlider.value = pose.y; rotZSlider.value = pose.z;
+    rotXValue.textContent = pose.x + "°";
+    rotYValue.textContent = pose.y + "°";
+    rotZValue.textContent = pose.z + "°";
+    // 交给统一的旋转入口处理（它内部会用 prevRot 计算增量并给布料一点惯性）
+    if (typeof handleRotationChange === "function") handleRotationChange();
+    else applyClothRotation(pose.x, pose.y, pose.z);
+}
+
 function applyPresetToSliders(preset) {
     // ===== 原有滑块 =====
     stiffnessSlider.value = preset.stiffness;
@@ -1464,74 +2139,115 @@ function applyPresetToSliders(preset) {
     velocityRetention  = p.velRet;
 
     if (preset.hz) accumulator = 0;
+    // 🪶 换预设等于换了物理参数，唤醒低配求解器
+    if (cloth) cloth.wake();
 }
 
 physicsPresetSelect.onchange = () => {
     const preset = physicsPresets[physicsPresetSelect.value];
     if (!preset) return;
     applyPresetToSliders(preset);
+    if (cloth) cloth.wake();
 };
 
+// ==============================================================
+// 🎨 材质下拉框：同样由数据表生成（分组 + i18n）
+// ==============================================================
+const MATERIAL_GROUPS = [
+    { titleKey: "mat_group_fabric", items: ["custom", "default", "cotton", "washed_cotton", "linen", "wool", "velvet", "worsted_wool", "tr_blend", "polyester", "nylon", "terry", "felt", "corduroy", "sherpa", "chenille", "mohair", "satin", "sateen", "taffeta", "organza", "tulle", "lace", "silk", "habotai", "chiffon", "gauze", "flag", "spandex", "sportmesh", "jersey", "rib_knit", "plisse", "tweed", "devore", "fleece", "hook", "cable_knit", "denim", "canvas", "burlap", "tie_dye", "batik"] },
+    { titleKey: "mat_group_coated", items: ["duck_canvas", "oxford", "vinyl_banner", "mesh_banner", "awning", "burlap", "straw_mat", "bamboo_mat", "leather", "suede", "metal", "metalsheet", "glitter_seqn", "tinfoil", "cork", "perforated", "rubber", "silicone", "neoprene", "foam", "paper", "plastic", "bubble_wrap", "clingfilm"] },
+    { titleKey: "mat_group_optical", items: ["glass", "jelly", "film", "holographic", "wet_cloth", "fishnet"] }
+];
+
+const MATERIAL_TEXT_FALLBACK = {
+    mat_group_fabric: "布料",
+    mat_group_coated: "涂层 / 工业料",
+    mat_group_optical: "光学 / 特殊"
+};
+
+function materialLabel(key) {
+    return presetText("mat_preset_" + key, key);
+}
+
+function fillMaterialPresetOptions() {
+    if (!materialPresetSelect) return;
+    const prev = materialPresetSelect.value;
+    materialPresetSelect.innerHTML = "";
+    for (const group of MATERIAL_GROUPS) {
+        const og = document.createElement("optgroup");
+        og.label = (window.I18N && window.I18N[window.currentLang || "zh"] && window.I18N[window.currentLang || "zh"][group.titleKey]) || MATERIAL_TEXT_FALLBACK[group.titleKey] || group.titleKey;
+        for (const key of group.items) {
+            if (!materialPresets[key]) continue;
+            const op = document.createElement("option");
+            op.value = key;
+            op.textContent = materialLabel(key);
+            og.appendChild(op);
+        }
+        materialPresetSelect.appendChild(og);
+    }
+    materialPresetSelect.value = prev || "custom";
+}
+
+// 选中材质 → 把该材质的参数写回所有相关控件
 materialPresetSelect.onchange = () => {
     const preset = materialPresets[materialPresetSelect.value];
     if (!preset) return;
-    
-    // 原有
+
     lightIntensitySlider.value = preset.light;
     roughnessSlider.value = preset.rough;
     metalnessSlider.value = preset.metal;
-    toggleFlat.checked = preset.flat;
-    if (preset.opacity !== undefined) { opacitySlider.value = preset.opacity; clothOpacity = preset.opacity; }
-    
-    // 新增高级参数
-    clothTransmission = preset.trans !== undefined ? preset.trans : 0;
-    clothClearcoat = preset.clear !== undefined ? preset.clear : 0;
-    clothIor = preset.ior !== undefined ? preset.ior : 1.5;
-    clothThickness = preset.thick !== undefined ? preset.thick : 0;
-    clothAttenuation = preset.atten !== undefined ? preset.atten : 0;
-    clothAttenuationColor = preset.attenCol || "#ffffff";
-    clothIridescence = preset.irid !== undefined ? preset.irid : 0;
-    clothIridescenceIor = preset.iridIor !== undefined ? preset.iridIor : 1.3;
-    clothSheen = preset.sheen !== undefined ? preset.sheen : 0;
-    clothSheenColor = preset.sheenCol || "#ffffff";
-    clothSheenRoughness = preset.sheenRough !== undefined ? preset.sheenRough : 0.5;
+    toggleFlat.checked = !!preset.flat;
+    flatShadingEnabled = !!preset.flat;
+    clothOpacity = preset.opacity;
+    opacitySlider.value = preset.opacity;
 
-    // 更新 UI 滑块
-    document.getElementById("matTransmission").value = clothTransmission;
-    document.getElementById("matTransmissionValue").textContent = clothTransmission.toFixed(2);
-    document.getElementById("matClearcoat").value = clothClearcoat;
-    document.getElementById("matClearcoatValue").textContent = clothClearcoat.toFixed(2);
-    document.getElementById("matIor").value = clothIor;
-    document.getElementById("matIorValue").textContent = clothIor.toFixed(2);
-    document.getElementById("matThickness").value = clothThickness;
-    document.getElementById("matThicknessValue").textContent = clothThickness.toFixed(2);
-    document.getElementById("matAttenuation").value = clothAttenuation;
-    document.getElementById("matAttenuationValue").textContent = clothAttenuation.toFixed(2);
-    document.getElementById("matAttenuationColor").value = clothAttenuationColor;
-    document.getElementById("matIridescence").value = clothIridescence;
-    document.getElementById("matIridescenceValue").textContent = clothIridescence.toFixed(2);
-    document.getElementById("matIridescenceIor").value = clothIridescenceIor;
-    document.getElementById("matIridescenceIorValue").textContent = clothIridescenceIor.toFixed(2);
-    document.getElementById("matSheen").value = clothSheen;
-    document.getElementById("matSheenValue").textContent = clothSheen.toFixed(2);
-    document.getElementById("matSheenColor").value = clothSheenColor;
-    document.getElementById("matSheenRoughness").value = clothSheenRoughness;
-    document.getElementById("matSheenRoughnessValue").textContent = clothSheenRoughness.toFixed(2);
+    clothTransmission = preset.trans;
+    clothClearcoat = preset.clear;
+    clothIor = preset.ior;
+    clothThickness = preset.thick;
+    clothAttenuation = preset.atten;
+    clothAttenuationColor = preset.attenCol;
+    clothIridescence = preset.irid;
+    clothIridescenceIor = preset.iridIor;
+    clothSheen = preset.sheen;
+    clothSheenColor = preset.sheenCol;
+    clothSheenRoughness = preset.sheenRough;
 
-    // 原有更新文本
-    document.getElementById("lightIntensityValue").textContent = parseFloat(preset.light).toFixed(2);
-    document.getElementById("roughnessValue").textContent = parseFloat(preset.rough).toFixed(2);
-    document.getElementById("metalnessValue").textContent = parseFloat(preset.metal).toFixed(2);
-    if (preset.opacity !== undefined) { document.getElementById("opacityValue").textContent = parseFloat(preset.opacity).toFixed(2); }
-    
+    const setV = (id, val, dispId, fmt) => {
+        const el = document.getElementById(id);
+        const dv = document.getElementById(dispId);
+        if (el) el.value = val;
+        if (dv) dv.textContent = fmt ? fmt(val) : val;
+    };
+    setV("lightIntensity", preset.light, "lightIntensityValue", v => parseFloat(v).toFixed(2));
+    setV("roughness", preset.rough, "roughnessValue", v => parseFloat(v).toFixed(2));
+    setV("metalness", preset.metal, "metalnessValue", v => parseFloat(v).toFixed(2));
+    setV("opacity", preset.opacity, "opacityValue", v => parseFloat(v).toFixed(2));
+    setV("matTransmission", preset.trans, "matTransmissionValue");
+    setV("matClearcoat", preset.clear, "matClearcoatValue");
+    setV("matIor", preset.ior, "matIorValue");
+    setV("matThickness", preset.thick, "matThicknessValue");
+    setV("matAttenuation", preset.atten, "matAttenuationValue");
+    setV("matIridescence", preset.irid, "matIridescenceValue");
+    setV("matIridescenceIor", preset.iridIor, "matIridescenceIorValue");
+    setV("matSheen", preset.sheen, "matSheenValue");
+    setV("matSheenRoughness", preset.sheenRough, "matSheenRoughnessValue");
+
+    const attenColorEl = document.getElementById("matAttenuationColor");
+    if (attenColorEl) attenColorEl.value = preset.attenCol;
+    const sheenColorEl = document.getElementById("matSheenColor");
+    if (sheenColorEl) sheenColorEl.value = preset.sheenCol;
+
     if (dirLight && lightEnabled) dirLight.intensity = preset.light;
     if (clothMesh) switchClothMaterial();
     if (thicknessEnabled) updateThicknessMesh();
+
 };
 
 windPresetSelect.onchange = () => {
     const preset = windPresets[windPresetSelect.value];
     if (!preset) return;
+    if (!windEnabled) { windEnabled = true; toggleWind.checked = true; }
     windSlider.value = preset.strength;
     windDirSlider.value = preset.dir;
     windNoiseAmpSlider.value = preset.noiseAmp;
@@ -1543,17 +2259,21 @@ windPresetSelect.onchange = () => {
     document.getElementById("windNoiseAmpValue").textContent = parseFloat(preset.noiseAmp).toFixed(2);
     document.getElementById("windRandomValue").textContent = parseFloat(preset.random).toFixed(2);
     document.getElementById("windSpeedValue").textContent = parseFloat(preset.speed).toFixed(2);
+    if (cloth) cloth.wake();
 };
 
 collisionPresetSelect.onchange = () => {
     const preset = collisionPresets[collisionPresetSelect.value];
     if (!preset) return;
+    // 选了碰撞预设就顺手打开自碰撞，否则改了参数也看不出效果
+    if (!collisionEnabled) { collisionEnabled = true; toggleCollision.checked = true; }
     collisionRadiusSlider.value = preset.radius;
     collisionForceSlider.value = preset.force;
     collisionItersSlider.value = preset.iters;
     document.getElementById("collisionRadiusValue").textContent = parseFloat(preset.radius).toFixed(2);
     document.getElementById("collisionForceValue").textContent = parseFloat(preset.force).toFixed(1);
     document.getElementById("collisionItersValue").textContent = parseInt(preset.iters);
+    if (cloth) cloth.wake();
 };
 
 dragModeRadios.forEach(radio => {
@@ -1936,7 +2656,74 @@ function applyTextureFilter(canvas, type, strength = 1.0) {
             out[idx+3] = 255;
         }
     }
-} else {
+    } else if (type === 'sun_faded') {
+        // ☀️ 晒褪色：降饱和 + 暖黄 + 轻微暗角，像在窗边放了三年
+        const s = strength;
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                const idx = (y * w + x) * 4;
+                const r = src[idx], g = src[idx+1], b = src[idx+2];
+                const gray = r * 0.299 + g * 0.587 + b * 0.114;
+                const desat = 1 - 0.55 * s;
+                let nr = (r * desat + gray * (1 - desat)) * (1 + 0.10 * s) + 18 * s;
+                let ng = (g * desat + gray * (1 - desat)) * (1 + 0.08 * s) + 10 * s;
+                let nb = (b * desat + gray * (1 - desat)) * (1 - 0.06 * s) - 6 * s;
+                const nx = x / w - 0.5, ny = y / h - 0.5;
+                const vig = 1 - Math.max(0, Math.sqrt(nx*nx + ny*ny) - 0.28) * 1.1 * s;
+                nr *= vig; ng *= vig; nb *= vig;
+                out[idx] = Math.max(0, Math.min(255, nr));
+                out[idx+1] = Math.max(0, Math.min(255, ng));
+                out[idx+2] = Math.max(0, Math.min(255, nb));
+                out[idx+3] = 255;
+            }
+        }
+    } else if (type === 'wet_stain') {
+        // 💧 湿痕：不规则暗斑 + 边缘压深，像刚被水洇过
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                const idx = (y * w + x) * 4;
+                const n1 = Math.sin(x * 0.012 + Math.cos(y * 0.009) * 2.0);
+                const n2 = Math.sin(y * 0.017 + Math.sin(x * 0.011) * 1.7);
+                const field = (n1 + n2) * 0.5;
+                const wet = Math.max(0, field) * 0.75 * strength;
+                const edge = Math.abs(field) * strength;
+                const dark = 1 - wet * 0.45;
+                out[idx] = Math.max(0, Math.min(255, src[idx] * dark - edge * 12));
+                out[idx+1] = Math.max(0, Math.min(255, src[idx+1] * dark - edge * 10));
+                out[idx+2] = Math.max(0, Math.min(255, src[idx+2] * dark * 1.04));
+                out[idx+3] = 255;
+            }
+        }
+    } else if (type === 'knit_grain') {
+        // 🧶 针织纹理：细密线圈 + 轻微明暗起伏
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                const idx = (y * w + x) * 4;
+                const row = Math.sin(y * 0.55) * 0.5 + 0.5;
+                const col = Math.sin(x * 0.09 + row * 2.0) * 0.5 + 0.5;
+                const shade = (row * 0.55 + col * 0.45 - 0.5) * 70 * strength;
+                out[idx] = Math.max(0, Math.min(255, src[idx] + shade));
+                out[idx+1] = Math.max(0, Math.min(255, src[idx+1] + shade));
+                out[idx+2] = Math.max(0, Math.min(255, src[idx+2] + shade * 0.9));
+                out[idx+3] = 255;
+            }
+        }
+    } else if (type === 'film_grain') {
+        // 🎞 胶片颗粒：单色噪点 + 轻微对比拉伸
+        const s = strength;
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                const idx = (y * w + x) * 4;
+                const grain = (Math.random() - 0.5) * 90 * s;
+                const contrast = 1 + 0.25 * s;
+                const lift = -(0.10 * s) * 255;
+                out[idx] = Math.max(0, Math.min(255, (src[idx] - 128) * contrast + 128 + lift + grain));
+                out[idx+1] = Math.max(0, Math.min(255, (src[idx+1] - 128) * contrast + 128 + lift + grain));
+                out[idx+2] = Math.max(0, Math.min(255, (src[idx+2] - 128) * contrast + 128 + lift + grain));
+                out[idx+3] = 255;
+            }
+        }
+    } else {
         outData.data.set(srcData.data);
     }
 
@@ -1983,7 +2770,8 @@ function updateCamera() {
     if (!camera) return;
 
     const aspect = CANVAS_W / Math.max(1, CANVAS_H);
-    const size = 1.3 * zoom;
+    // 缩到 0 时给一个极小尺寸，避免正交相机矩阵退化（画面会变成空白但不报错）
+    const size = 1.3 * Math.max(zoom, 0.002);
 
     if (aspect >= 1) {
         camera.left = -size * aspect; camera.right = size * aspect;
@@ -2197,77 +2985,119 @@ function createProceduralNormalMap(type) {
             hCtx.stroke();
         }
     } else if (type === 'weave') {
-        const gridCount = 8;
-        const s = res / gridCount;
-        hCtx.fillStyle = '#808080';
+        // 经典平纹：经纬线一上一下交替，满幅铺满
+        const WC = 24;
+        const wStep = res / WC;
+        const wHalf = wStep * 0.30;
+        hCtx.fillStyle = '#787878';
         hCtx.fillRect(0, 0, res, res);
-        for (let i = -1; i <= gridCount; i++) {
-            for (let j = -1; j <= gridCount; j++) {
-                const x = i * s + s / 2;
-                const y = j * s + s / 2;
-                const isEven = ((i % gridCount) + gridCount + (j % gridCount) + gridCount) % 2 === 0;
-                hCtx.save();
-                hCtx.translate(x, y);
-                if (isEven) { hCtx.scale(1, 0.4); } else { hCtx.scale(0.4, 1); }
-                const r = s * 0.6;
-                const grad = hCtx.createRadialGradient(0, 0, 0, 0, 0, r);
-                grad.addColorStop(0, "#ffffff");
-                grad.addColorStop(1, "#808080");
+        for (let row = 0; row < WC; row++) {
+            const y = row * wStep + wStep / 2;
+            for (let col = 0; col < WC; col++) {
+                const onTop = ((row + col) % 2) === 0;
+                const x = col * wStep;
+                const grad = hCtx.createLinearGradient(0, y - wHalf, 0, y + wHalf);
+                grad.addColorStop(0, onTop ? 'rgba(40,40,40,0.50)' : 'rgba(255,255,255,0.55)');
+                grad.addColorStop(0.45, 'rgba(238,238,238,0.85)');
+                grad.addColorStop(0.55, 'rgba(210,210,210,0.90)');
+                grad.addColorStop(1, onTop ? 'rgba(255,255,255,0.55)' : 'rgba(40,40,40,0.50)');
                 hCtx.fillStyle = grad;
-                hCtx.beginPath();
-                hCtx.arc(0, 0, r, 0, Math.PI * 2);
-                hCtx.fill();
-                hCtx.restore();
+                hCtx.fillRect(x - 1, y - wHalf, wStep + 2, wHalf * 2);
             }
         }
-    } else if (type === 'basket') {
-        const gridCount = 2;
-        const s = res / gridCount;
-        hCtx.fillStyle = '#808080';
-        hCtx.fillRect(0, 0, res, res);
-        for (let i = -1; i <= gridCount; i++) {
-            for (let j = -1; j <= gridCount; j++) {
-                const x = i * s + s / 2;
-                const y = j * s + s / 2;
-                const isEven = ((i % gridCount) + gridCount + (j % gridCount) + gridCount) % 2 === 0;
-                hCtx.save();
-                hCtx.translate(x, y);
-                if (isEven) { hCtx.scale(1, 0.25); } else { hCtx.scale(0.25, 1); }
-                const r = s * 0.8;
-                const grad = hCtx.createLinearGradient(0, -r, 0, r);
-                grad.addColorStop(0, "#808080");
-                grad.addColorStop(0.5, "#ffffff");
-                grad.addColorStop(1, "#808080");
+        for (let col = 0; col < WC; col++) {
+            const x = col * wStep + wStep / 2;
+            for (let row = 0; row < WC; row++) {
+                const onTop = ((row + col) % 2) === 1;
+                const y = row * wStep;
+                const grad = hCtx.createLinearGradient(x - wHalf, 0, x + wHalf, 0);
+                grad.addColorStop(0, onTop ? 'rgba(40,40,40,0.50)' : 'rgba(255,255,255,0.55)');
+                grad.addColorStop(0.5, 'rgba(232,232,232,0.88)');
+                grad.addColorStop(1, onTop ? 'rgba(255,255,255,0.55)' : 'rgba(40,40,40,0.50)');
                 hCtx.fillStyle = grad;
-                hCtx.beginPath();
-                hCtx.arc(0, 0, r, 0, Math.PI * 2);
-                hCtx.fill();
-                hCtx.restore();
+                hCtx.fillRect(x - wHalf, y - 1, wHalf * 2, wStep + 2);
             }
         }
     } else if (type === 'herringbone') {
-        const cols = 12; 
-        const colWidth = res / cols;
-        hCtx.lineWidth = colWidth * 0.6; 
-        hCtx.lineCap = "round";
-        hCtx.lineJoin = "round";
-        hCtx.strokeStyle = '#ffffff';
-        const h = colWidth * 2;
-        for (let i = -1; i <= cols; i++) {
-            const x = i * colWidth;
-            const isEven = ((i % cols) + cols) % 2 === 0;
-            for (let y = -h; y < res + h; y += h) {
-                hCtx.beginPath();
-                if (isEven) {
-                    hCtx.moveTo(x, y + h);
-                    hCtx.lineTo(x + colWidth, y + h/2);
-                    hCtx.lineTo(x, y);
-                } else {
-                    hCtx.moveTo(x, y);
-                    hCtx.lineTo(x + colWidth, y + h/2);
-                    hCtx.lineTo(x, y + h);
+        // 人字纹：一条连续的人字形折线（全部同向），行与行交错 —— 没有接缝
+        const HC = 9;
+        const hw = res / HC;           // 半周期宽度
+        const hh = hw * 1.9;           // 折线高度
+        const rowGap = hh * 0.62;      // 行间距（密度）
+        hCtx.fillStyle = '#7c7c7c';
+        hCtx.fillRect(0, 0, res, res);
+        hCtx.lineCap = 'round';
+        hCtx.lineJoin = 'round';
+
+        // 每一行画成一条不断开的连续折线（V 全部同向朝上）
+        const drawChevronRow = (baseY, shiftX, w, color, lw) => {
+            hCtx.strokeStyle = color;
+            hCtx.lineWidth = lw;
+            hCtx.beginPath();
+            let x = -hw * 2 + shiftX;
+            let up = false;
+            hCtx.moveTo(x, baseY);
+            while (x < res + hw * 2) {
+                x += hw;
+                up = !up;
+                hCtx.lineTo(x, up ? baseY - hh : baseY);
+            }
+            hCtx.stroke();
+        };
+
+        const rows = Math.ceil(res / rowGap) + 4;
+        for (let r = -3; r <= rows; r++) {
+            const baseY = r * rowGap;
+            const shiftX = (r % 2 === 0) ? 0 : hw * 0.5;
+            // 暗沟（最宽，作为两股之间的凹陷）
+            drawChevronRow(baseY, shiftX, hw, 'rgba(32,32,32,0.72)', hw * 0.55);
+            // 主线（亮）
+            drawChevronRow(baseY, shiftX, hw, 'rgba(232,232,232,0.96)', hw * 0.34);
+            // 顶部高光（细）
+            drawChevronRow(baseY - hw * 0.10, shiftX, hw, 'rgba(255,255,255,0.55)', hw * 0.10);
+        }
+        // 纱线噪点
+        for (let i = 0; i < 2600; i++) {
+            hCtx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.09)' : 'rgba(0,0,0,0.09)';
+            hCtx.fillRect(Math.random() * res, Math.random() * res, 1.4, 1.4);
+        }
+    } else if (type === 'basket') {
+        // 编织纹：2×2 交替的横/竖条编织，每格三根圆棱
+        const BM = 8;
+        const bStep = res / BM;
+        hCtx.fillStyle = '#7b7b7b';
+        hCtx.fillRect(0, 0, res, res);
+        hCtx.lineCap = 'round';
+        for (let gx = 0; gx < BM; gx++) {
+            for (let gy = 0; gy < BM; gy++) {
+                const horiz = ((gx + gy) % 2) === 0;
+                const x0 = gx * bStep;
+                const y0 = gy * bStep;
+                for (let k = 0; k < 3; k++) {
+                    const t = (k + 0.5) / 3;
+                    const cs = bStep * 0.32;
+                    if (horiz) {
+                        const y = y0 + bStep * t;
+                        const grad = hCtx.createLinearGradient(0, y - bStep * 0.20, 0, y + bStep * 0.20);
+                        grad.addColorStop(0, 'rgba(35,35,35,0.55)');
+                        grad.addColorStop(0.42, 'rgba(248,248,248,0.92)');
+                        grad.addColorStop(1, 'rgba(60,60,60,0.45)');
+                        hCtx.fillStyle = grad;
+                        hCtx.beginPath();
+                        hCtx.roundRect ? hCtx.roundRect(x0, y - bStep * 0.20, bStep, bStep * 0.40, bStep * 0.18) : hCtx.rect(x0, y - bStep * 0.20, bStep, bStep * 0.40);
+                        hCtx.fill();
+                    } else {
+                        const x = x0 + bStep * t;
+                        const grad = hCtx.createLinearGradient(x - bStep * 0.20, 0, x + bStep * 0.20, 0);
+                        grad.addColorStop(0, 'rgba(35,35,35,0.55)');
+                        grad.addColorStop(0.5, 'rgba(248,248,248,0.92)');
+                        grad.addColorStop(1, 'rgba(60,60,60,0.45)');
+                        hCtx.fillStyle = grad;
+                        hCtx.beginPath();
+                        hCtx.roundRect ? hCtx.roundRect(x - bStep * 0.20, y0, bStep * 0.40, bStep, bStep * 0.18) : hCtx.rect(x - bStep * 0.20, y0, bStep * 0.40, bStep);
+                        hCtx.fill();
+                    }
                 }
-                hCtx.stroke();
             }
         }
     } else if (type === 'puffyQuilt') {
@@ -2353,6 +3183,48 @@ function createProceduralNormalMap(type) {
                 }
             }
         }
+    } else if (type === 'vinyl_banner') {
+        // 🖨 喷绘布：细密平织底纹 + 喷墨颗粒
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        hCtx.strokeStyle = 'rgba(255,255,255,0.20)';
+        hCtx.lineWidth = 1;
+        for (let i = 0; i < res; i += 6) {
+            hCtx.beginPath(); hCtx.moveTo(i, 0); hCtx.lineTo(i, res); hCtx.stroke();
+            hCtx.beginPath(); hCtx.moveTo(0, i); hCtx.lineTo(res, i); hCtx.stroke();
+        }
+        for (let i = 0; i < 2600; i++) {
+            const x = Math.random() * res, y = Math.random() * res;
+            hCtx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.32)' : 'rgba(0,0,0,0.28)';
+            hCtx.beginPath(); hCtx.arc(x, y, Math.random() * 1.6 + 0.4, 0, Math.PI * 2); hCtx.fill();
+        }
+    } else if (type === 'bubble_wrap') {
+        // 🫧 气泡膜：规则排列的圆形气泡
+        hCtx.fillStyle = '#6a6a6a';
+        hCtx.fillRect(0, 0, res, res);
+        const bStep = res / 8;
+        for (let row = 0; row < 8; row++) {
+            for (let col = 0; col < 8; col++) {
+                const cx = (col + 0.5) * bStep + (row % 2 ? bStep * 0.5 : 0);
+                const cy = (row + 0.5) * bStep;
+                const grad = hCtx.createRadialGradient(cx, cy, 0, cx, cy, bStep * 0.42);
+                grad.addColorStop(0, 'rgba(255,255,255,0.95)');
+                grad.addColorStop(0.55, 'rgba(190,190,190,0.55)');
+                grad.addColorStop(1, 'rgba(40,40,40,0.85)');
+                hCtx.fillStyle = grad;
+                hCtx.beginPath(); hCtx.arc(cx, cy, bStep * 0.42, 0, Math.PI * 2); hCtx.fill();
+            }
+        }
+    } else if (type === 'tulle') {
+        // 🕸 蓬蓬网纱：极细的斜向网眼
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        hCtx.lineWidth = 2;
+        hCtx.strokeStyle = 'rgba(255,255,255,0.50)';
+        for (let i = -res; i < res * 2; i += 16) {
+            hCtx.beginPath(); hCtx.moveTo(i, 0); hCtx.lineTo(i + res, res); hCtx.stroke();
+            hCtx.beginPath(); hCtx.moveTo(i, res); hCtx.lineTo(i + res, 0); hCtx.stroke();
+        }
     } else if (type === 'vinyl') {
         hCtx.fillStyle = '#808080';
         hCtx.fillRect(0, 0, res, res);
@@ -2427,29 +3299,6 @@ function createProceduralNormalMap(type) {
             hCtx.moveTo(x, y);
             hCtx.quadraticCurveTo(x + Math.cos(ang)*len*0.5 + (Math.random()-0.5)*10, y + Math.sin(ang)*len*0.5 + (Math.random()-0.5)*10, x + Math.cos(ang)*len, y + Math.sin(ang)*len);
             hCtx.stroke();
-        }
-    } else if (type === 'carbon') {
-        hCtx.fillStyle = '#505050';
-        hCtx.fillRect(0, 0, res, res);
-        const count = 16;
-        const s = res / count;
-        for(let i=0; i<count; i++) {
-            for(let j=0; j<count; j++) {
-                const isEven = ((i + j) % 4) < 2;
-                const cx = i * s;
-                const cy = j * s;
-                if (isEven) {
-                    const grad = hCtx.createLinearGradient(cx, cy, cx + s, cy + s);
-                    grad.addColorStop(0, '#404040'); grad.addColorStop(0.5, '#ffffff'); grad.addColorStop(1, '#404040');
-                    hCtx.fillStyle = grad;
-                    hCtx.fillRect(cx, cy, s, s);
-                } else {
-                    const grad = hCtx.createLinearGradient(cx + s, cy, cx, cy + s);
-                    grad.addColorStop(0, '#404040'); grad.addColorStop(0.5, '#d0d0d0'); grad.addColorStop(1, '#404040');
-                    hCtx.fillStyle = grad;
-                    hCtx.fillRect(cx, cy, s, s);
-                }
-            }
         }
     } else if (type === 'square_weave') {
         hCtx.fillStyle = '#808080';
@@ -2641,20 +3490,81 @@ function createProceduralNormalMap(type) {
             hCtx.stroke();
         }
     } else if (type === 'knit') {
-        hCtx.lineWidth = step * 0.4;
-        hCtx.lineCap = "round";
-        for(let i=-1; i<=n; i++) {
-            for(let j=-1; j<=n; j++) {
-                const x = i * step;
-                const y = j * step;
-                hCtx.beginPath();
-                hCtx.strokeStyle = "#ffffff";
-                hCtx.arc(x + step/2, y + step*0.8, step*0.6, Math.PI, 0);
-                hCtx.stroke();
-                hCtx.beginPath();
-                hCtx.strokeStyle = "#000000";
-                hCtx.arc(x + step/2, y + step*0.2, step*0.6, 0, Math.PI);
-                hCtx.stroke();
+        // 针织毛衣：连续的 V 形织列（一行一条不间断的折线），绒面厚实
+        const KC = 18;
+        const kStep = res / KC;
+        const rowGap = kStep * 0.62;
+        hCtx.fillStyle = '#7e7e7e';
+        hCtx.fillRect(0, 0, res, res);
+        hCtx.lineCap = 'round';
+        hCtx.lineJoin = 'round';
+
+        const drawKnitRow = (baseY, shiftX, color, lw, dy) => {
+            hCtx.strokeStyle = color;
+            hCtx.lineWidth = lw;
+            hCtx.beginPath();
+            let x = -kStep * 2 + shiftX;
+            let up = false;
+            hCtx.moveTo(x, baseY + dy);
+            while (x < res + kStep * 2) {
+                x += kStep * 0.5;
+                up = !up;
+                hCtx.lineTo(x, baseY + dy + (up ? -kStep * 0.85 : 0));
+            }
+            hCtx.stroke();
+        };
+
+        const rows = Math.ceil(res / rowGap) + 4;
+        for (let r = -3; r <= rows; r++) {
+            const baseY = r * rowGap;
+            const shiftX = (r % 2 === 0) ? 0 : kStep * 0.25;
+            // 深沟
+            drawKnitRow(baseY, shiftX, 'rgba(38,38,38,0.60)', kStep * 0.48, kStep * 0.10);
+            // 主线圈
+            drawKnitRow(baseY, shiftX, 'rgba(236,236,236,0.96)', kStep * 0.30, 0);
+            // 高光
+            drawKnitRow(baseY, shiftX, 'rgba(255,255,255,0.45)', kStep * 0.10, -kStep * 0.10);
+        }
+        // 绒面毛羽
+        for (let i = 0; i < 6000; i++) {
+            hCtx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)';
+            hCtx.fillRect(Math.random() * res, Math.random() * res, 1.2, 1.6);
+        }
+    } else if (type === 'carbon') {
+        // 碳纤维：2×2 斜纹布 + 细丝高光
+        const CF = 16;
+        const cStep = res / CF;
+        hCtx.fillStyle = '#4a4a4a';
+        hCtx.fillRect(0, 0, res, res);
+        for (let i = 0; i < CF; i++) {
+            for (let j = 0; j < CF; j++) {
+                const dirUp = ((i + j) % 4) < 2;
+                const x = i * cStep;
+                const y = j * cStep;
+                const grad = dirUp
+                    ? hCtx.createLinearGradient(x, y, x + cStep, y + cStep)
+                    : hCtx.createLinearGradient(x + cStep, y, x, y + cStep);
+                grad.addColorStop(0, 'rgba(30,30,30,0.95)');
+                grad.addColorStop(0.45, 'rgba(140,140,140,0.95)');
+                grad.addColorStop(0.5, 'rgba(240,240,240,0.95)');
+                grad.addColorStop(0.56, 'rgba(150,150,150,0.95)');
+                grad.addColorStop(1, 'rgba(28,28,28,0.95)');
+                hCtx.fillStyle = grad;
+                hCtx.fillRect(x, y, cStep, cStep);
+                // 编织细丝
+                hCtx.strokeStyle = 'rgba(255,255,255,0.10)';
+                hCtx.lineWidth = 1;
+                for (let k = 1; k < 4; k++) {
+                    hCtx.beginPath();
+                    if (dirUp) {
+                        hCtx.moveTo(x, y + cStep * k / 4);
+                        hCtx.lineTo(x + cStep, y + cStep * k / 4);
+                    } else {
+                        hCtx.moveTo(x + cStep * k / 4, y);
+                        hCtx.lineTo(x + cStep * k / 4, y + cStep);
+                    }
+                    hCtx.stroke();
+                }
             }
         }
     } else if (type === 'leather') {
@@ -2750,6 +3660,383 @@ function createProceduralNormalMap(type) {
         for(let i=-8; i<16; i++) {
             hCtx.beginPath(); hCtx.moveTo(i*dStep, 0); hCtx.lineTo(i*dStep + res, res); hCtx.stroke();
             hCtx.beginPath(); hCtx.moveTo(i*dStep, 0); hCtx.lineTo(i*dStep - res, res); hCtx.stroke();
+        }
+    } else if (type === 'oxford') {
+        // 牛津布：细密十字平纹 + 涂层微光
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        hCtx.strokeStyle = 'rgba(255,255,255,0.16)';
+        hCtx.lineWidth = 1;
+        for (let i = 0; i < res; i += 4) {
+            hCtx.beginPath(); hCtx.moveTo(i, 0); hCtx.lineTo(i, res); hCtx.stroke();
+            hCtx.beginPath(); hCtx.moveTo(0, i); hCtx.lineTo(res, i); hCtx.stroke();
+        }
+        hCtx.fillStyle = 'rgba(0,0,0,0.10)';
+        for (let i = 0; i < 420; i++) {
+            hCtx.fillRect(Math.random() * res, Math.random() * res, 2, 2);
+        }
+    } else if (type === 'duck_canvas') {
+        // 防水帆布：粗斜向交织 + 涂层压痕
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        hCtx.lineWidth = 3;
+        hCtx.strokeStyle = 'rgba(255,255,255,0.22)';
+        for (let i = -res; i < res * 2; i += 14) {
+            hCtx.beginPath(); hCtx.moveTo(i, 0); hCtx.lineTo(i + res, res); hCtx.stroke();
+            hCtx.beginPath(); hCtx.moveTo(i, res); hCtx.lineTo(i + res, 0); hCtx.stroke();
+        }
+        hCtx.strokeStyle = 'rgba(30,30,30,0.20)';
+        hCtx.lineWidth = 1;
+        for (let i = -res; i < res * 2; i += 14) {
+            hCtx.beginPath(); hCtx.moveTo(i + 2, 0); hCtx.lineTo(i + res + 2, res); hCtx.stroke();
+        }
+    } else if (type === 'sateen') {
+        // 贡缎：单向细斜纹，缎面平滑
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        hCtx.strokeStyle = 'rgba(255,255,255,0.13)';
+        hCtx.lineWidth = 2;
+        for (let i = -res; i < res * 2; i += 5) {
+            hCtx.beginPath(); hCtx.moveTo(i, 0); hCtx.lineTo(i + res, res); hCtx.stroke();
+        }
+        hCtx.fillStyle = 'rgba(0,0,0,0.06)';
+        for (let i = 0; i < 500; i++) hCtx.fillRect(Math.random() * res, Math.random() * res, 1.5, 1.5);
+    } else if (type === 'jersey') {
+        // 平针线圈：更小更密的连续 V 列，表面平整带纵向轻罗纹
+        const JC = 34;
+        const jStep = res / JC;
+        const rowGap = jStep * 0.70;
+        hCtx.fillStyle = '#838383';
+        hCtx.fillRect(0, 0, res, res);
+        hCtx.lineCap = 'round';
+        hCtx.lineJoin = 'round';
+
+        const drawJerseyRow = (baseY, shiftX, color, lw, dy) => {
+            hCtx.strokeStyle = color;
+            hCtx.lineWidth = lw;
+            hCtx.beginPath();
+            let x = -jStep * 2 + shiftX;
+            let up = false;
+            hCtx.moveTo(x, baseY + dy);
+            while (x < res + jStep * 2) {
+                x += jStep * 0.5;
+                up = !up;
+                hCtx.lineTo(x, baseY + dy + (up ? -jStep * 0.80 : 0));
+            }
+            hCtx.stroke();
+        };
+
+        const rows = Math.ceil(res / rowGap) + 4;
+        for (let r = -3; r <= rows; r++) {
+            const baseY = r * rowGap;
+            const shiftX = (r % 2 === 0) ? 0 : jStep * 0.25;
+            drawJerseyRow(baseY, shiftX, 'rgba(58,58,58,0.42)', jStep * 0.34, jStep * 0.08);
+            drawJerseyRow(baseY, shiftX, 'rgba(242,242,242,0.94)', jStep * 0.22, 0);
+        }
+        // 纵向轻罗纹
+        for (let x = 0; x < res; x += jStep) {
+            hCtx.fillStyle = 'rgba(255,255,255,0.05)';
+            hCtx.fillRect(x, 0, 1, res);
+            hCtx.fillStyle = 'rgba(0,0,0,0.05)';
+            hCtx.fillRect(x + jStep * 0.5, 0, 1, res);
+        }
+        for (let i = 0; i < 4200; i++) {
+            hCtx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+            hCtx.fillRect(Math.random() * res, Math.random() * res, 1, 1.4);
+        }
+    } else if (type === 'rib_knit') {
+        // 罗纹针织：竖向凸条
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        const ribW = 14;
+        for (let x = 0; x < res; x += ribW) {
+            const grad = hCtx.createLinearGradient(x, 0, x + ribW, 0);
+            grad.addColorStop(0, 'rgba(60,60,60,0.55)');
+            grad.addColorStop(0.45, 'rgba(220,220,220,0.75)');
+            grad.addColorStop(1, 'rgba(60,60,60,0.55)');
+            hCtx.fillStyle = grad;
+            hCtx.fillRect(x, 0, ribW, res);
+        }
+        hCtx.strokeStyle = 'rgba(0,0,0,0.08)';
+        hCtx.lineWidth = 1;
+        for (let y = 0; y < res; y += 6) {
+            hCtx.beginPath(); hCtx.moveTo(0, y); hCtx.lineTo(res, y); hCtx.stroke();
+        }
+    } else if (type === 'plisse') {
+        // 百褶：规则竖向折痕，明暗相间
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        const pW = 16;
+        for (let x = 0; x < res; x += pW * 2) {
+            const g1 = hCtx.createLinearGradient(x, 0, x + pW, 0);
+            g1.addColorStop(0, 'rgba(240,240,240,0.85)');
+            g1.addColorStop(1, 'rgba(120,120,120,0.25)');
+            hCtx.fillStyle = g1;
+            hCtx.fillRect(x, 0, pW, res);
+            const g2 = hCtx.createLinearGradient(x + pW, 0, x + pW * 2, 0);
+            g2.addColorStop(0, 'rgba(110,110,110,0.25)');
+            g2.addColorStop(1, 'rgba(240,240,240,0.85)');
+            hCtx.fillStyle = g2;
+            hCtx.fillRect(x + pW, 0, pW, res);
+        }
+    } else if (type === 'tweed') {
+        // 粗花呢：粗颗粒 + 斜向纱线
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        for (let i = 0; i < 5000; i++) {
+            const v = Math.random();
+            hCtx.fillStyle = v > 0.5 ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.35)';
+            const s = Math.random() * 3 + 1;
+            hCtx.fillRect(Math.random() * res, Math.random() * res, s, s);
+        }
+        hCtx.lineWidth = 2;
+        for (const dir of [1, -1]) {
+            hCtx.strokeStyle = dir > 0 ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)';
+            for (let i = -res; i < res * 2; i += 22) {
+                hCtx.beginPath();
+                hCtx.moveTo(i, dir > 0 ? 0 : res);
+                hCtx.lineTo(i + res, dir > 0 ? res : 0);
+                hCtx.stroke();
+            }
+        }
+    } else if (type === 'bamboo') {
+        // 竹席：竖向竹条 + 横节
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        const bW = 18;
+        for (let x = 0; x < res; x += bW) {
+            const grad = hCtx.createLinearGradient(x, 0, x + bW, 0);
+            grad.addColorStop(0, 'rgba(50,50,50,0.55)');
+            grad.addColorStop(0.5, 'rgba(210,210,210,0.70)');
+            grad.addColorStop(1, 'rgba(50,50,50,0.55)');
+            hCtx.fillStyle = grad;
+            hCtx.fillRect(x, 0, bW, res);
+        }
+        hCtx.fillStyle = 'rgba(0,0,0,0.35)';
+        for (let y = 0; y < res; y += 64) hCtx.fillRect(0, y, res, 3);
+        hCtx.strokeStyle = 'rgba(0,0,0,0.10)';
+        hCtx.lineWidth = 1;
+        for (let i = 0; i < 400; i++) {
+            hCtx.beginPath();
+            const x = Math.random() * res, y = Math.random() * res;
+            hCtx.moveTo(x, y); hCtx.lineTo(x, y + Math.random() * 12 + 4);
+            hCtx.stroke();
+        }
+    } else if (type === 'aluminium') {
+        // 锡箔：细碎褶皱
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        hCtx.lineCap = 'round';
+        for (let i = 0; i < 900; i++) {
+            const x = Math.random() * res, y = Math.random() * res;
+            const len = Math.random() * 26 + 6;
+            const ang = Math.random() * Math.PI * 2;
+            hCtx.lineWidth = Math.random() * 1.6 + 0.4;
+            hCtx.strokeStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.35)';
+            hCtx.beginPath();
+            hCtx.moveTo(x, y);
+            hCtx.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len);
+            hCtx.stroke();
+        }
+    } else if (type === 'cork') {
+        // 软木：密集小颗粒
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        for (let i = 0; i < 6000; i++) {
+            const x = Math.random() * res, y = Math.random() * res;
+            const r = Math.random() * 2.6 + 0.6;
+            hCtx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.38)';
+            hCtx.beginPath(); hCtx.arc(x, y, r, 0, Math.PI * 2); hCtx.fill();
+        }
+    } else if (type === 'devore') {
+        // 烧花绒：不规则渐隐斑块
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        for (let i = 0; i < 90; i++) {
+            const x = Math.random() * res, y = Math.random() * res;
+            const r = Math.random() * res * 0.16 + 12;
+            const grad = hCtx.createRadialGradient(x, y, 0, x, y, r);
+            grad.addColorStop(0, Math.random() > 0.5 ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)');
+            grad.addColorStop(1, 'rgba(128,128,128,0)');
+            hCtx.fillStyle = grad;
+            hCtx.beginPath(); hCtx.arc(x, y, r, 0, Math.PI * 2); hCtx.fill();
+        }
+        hCtx.strokeStyle = 'rgba(255,255,255,0.10)';
+        hCtx.lineWidth = 1;
+        for (let i = 0; i < res; i += 3) {
+            hCtx.beginPath(); hCtx.moveTo(i, 0); hCtx.lineTo(i, res); hCtx.stroke();
+        }
+    } else if (type === 'perforated') {
+        // 打孔：规则圆孔（高度凹下去）
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        const pHoleStep = res / 12;
+        for (let row = 0; row < 13; row++) {
+            for (let col = 0; col < 13; col++) {
+                const cx = col * pHoleStep + (row % 2 ? pHoleStep * 0.5 : 0);
+                const cy = row * pHoleStep;
+                const r = pHoleStep * 0.26;
+                const grad = hCtx.createRadialGradient(cx, cy, 0, cx, cy, r * 1.6);
+                grad.addColorStop(0, 'rgba(0,0,0,0.95)');
+                grad.addColorStop(0.7, 'rgba(20,20,20,0.75)');
+                grad.addColorStop(1, 'rgba(128,128,128,0)');
+                hCtx.fillStyle = grad;
+                hCtx.beginPath(); hCtx.arc(cx, cy, r * 1.6, 0, Math.PI * 2); hCtx.fill();
+            }
+        }
+    } else if (type === 'banner_mesh') {
+        // 喷绘粗织：更粗的经纬线（户外广告布）
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        hCtx.lineWidth = 3;
+        for (const [col, stepW] of [['rgba(255,255,255,0.28)', 10], ['rgba(0,0,0,0.18)', 10]]) {
+            hCtx.strokeStyle = col;
+            for (let i = 0; i < res; i += stepW) {
+                hCtx.beginPath(); hCtx.moveTo(i, 0); hCtx.lineTo(i, res); hCtx.stroke();
+                hCtx.beginPath(); hCtx.moveTo(0, i); hCtx.lineTo(res, i); hCtx.stroke();
+            }
+        }
+        for (let i = 0; i < 3000; i++) {
+            hCtx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.30)' : 'rgba(0,0,0,0.26)';
+            hCtx.fillRect(Math.random() * res, Math.random() * res, 2, 2);
+        }
+    } else if (type === 'silk_habotai') {
+        // 电力纺：极细密平纹
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        hCtx.lineWidth = 1;
+        hCtx.strokeStyle = 'rgba(255,255,255,0.09)';
+        for (let i = 0; i < res; i += 3) {
+            hCtx.beginPath(); hCtx.moveTo(i, 0); hCtx.lineTo(i, res); hCtx.stroke();
+            hCtx.strokeStyle = 'rgba(0,0,0,0.06)';
+            hCtx.beginPath(); hCtx.moveTo(0, i); hCtx.lineTo(res, i); hCtx.stroke();
+            hCtx.strokeStyle = 'rgba(255,255,255,0.09)';
+        }
+        for (let i = 0; i < 800; i++) {
+            hCtx.fillStyle = 'rgba(255,255,255,0.06)';
+            hCtx.fillRect(Math.random() * res, Math.random() * res, 2, 2);
+        }
+    } else if (type === 'fishnet') {
+        // 渔网：粗斜向网格 + 网结
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        hCtx.lineWidth = 5;
+        hCtx.strokeStyle = 'rgba(255,255,255,0.55)';
+        for (let i = -res; i < res * 2; i += 26) {
+            hCtx.beginPath(); hCtx.moveTo(i, 0); hCtx.lineTo(i + res, res); hCtx.stroke();
+            hCtx.beginPath(); hCtx.moveTo(i, res); hCtx.lineTo(i + res, 0); hCtx.stroke();
+        }
+        hCtx.strokeStyle = 'rgba(0,0,0,0.45)';
+        hCtx.lineWidth = 2;
+        for (let i = -res; i < res * 2; i += 26) {
+            hCtx.beginPath(); hCtx.moveTo(i + 3, 0); hCtx.lineTo(i + res + 3, res); hCtx.stroke();
+            hCtx.beginPath(); hCtx.moveTo(i - 3, res); hCtx.lineTo(i + res - 3, 0); hCtx.stroke();
+        }
+    } else if (type === 'tie_dye') {
+        // 扎染：大尺度柔和晕染
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        for (let i = 0; i < 26; i++) {
+            const x = Math.random() * res, y = Math.random() * res;
+            const r = Math.random() * res * 0.22 + 20;
+            const grad = hCtx.createRadialGradient(x, y, 0, x, y, r);
+            grad.addColorStop(0, Math.random() > 0.45 ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)');
+            grad.addColorStop(1, 'rgba(128,128,128,0)');
+            hCtx.fillStyle = grad;
+            hCtx.beginPath(); hCtx.arc(x, y, r, 0, Math.PI * 2); hCtx.fill();
+        }
+    } else if (type === 'suede') {
+        // 麂皮：细密短绒
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        for (let i = 0; i < 18000; i++) {
+            const x = Math.random() * res, y = Math.random() * res;
+            const a = Math.random() * Math.PI * 2, len = Math.random() * 3 + 1;
+            hCtx.strokeStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)';
+            hCtx.lineWidth = 1;
+            hCtx.beginPath(); hCtx.moveTo(x, y); hCtx.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len); hCtx.stroke();
+        }
+    } else if (type === 'mesh_fine') {
+        // 细网眼
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        hCtx.strokeStyle = 'rgba(255,255,255,0.40)';
+        hCtx.lineWidth = 1.6;
+        for (let i = -res; i < res * 2; i += 9) {
+            hCtx.beginPath(); hCtx.moveTo(i, 0); hCtx.lineTo(i + res, res); hCtx.stroke();
+            hCtx.beginPath(); hCtx.moveTo(i, res); hCtx.lineTo(i + res, 0); hCtx.stroke();
+        }
+    } else if (type === 'cable_knit') {
+        // 绞花针织：粗麻花辫
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        const cableW = res / 4;
+        for (let c = 0; c < 4; c++) {
+            const baseX = cableW * (c + 0.5);
+            hCtx.strokeStyle = 'rgba(255,255,255,0.50)';
+            hCtx.lineWidth = 11;
+            for (let y = -40; y < res + 40; y += 9) {
+                const sway = Math.sin((y / res) * Math.PI * 4) * 22;
+                hCtx.beginPath();
+                hCtx.moveTo(baseX + sway, y);
+                hCtx.lineTo(baseX + Math.sin(((y + 9) / res) * Math.PI * 4) * 22, y + 9);
+                hCtx.stroke();
+            }
+        }
+    } else if (type === 'hook') {
+        // 钩编：小环
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        hCtx.strokeStyle = 'rgba(255,255,255,0.42)';
+        hCtx.lineWidth = 3;
+        const hStep = 16;
+        for (let row = 0; row < res / hStep + 1; row++) {
+            for (let col = 0; col < res / hStep + 1; col++) {
+                const cx = col * hStep, cy = row * hStep + (col % 2 ? hStep * 0.5 : 0);
+                hCtx.beginPath(); hCtx.arc(cx, cy, hStep * 0.34, Math.PI * 0.9, Math.PI * 2.15); hCtx.stroke();
+            }
+        }
+    } else if (type === 'glitter') {
+        // 闪粉：亮点
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        for (let i = 0; i < 12000; i++) {
+            hCtx.fillStyle = Math.random() > 0.45 ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.50)';
+            const s = Math.random() * 2.2 + 0.6;
+            hCtx.beginPath(); hCtx.arc(Math.random() * res, Math.random() * res, s, 0, Math.PI * 2); hCtx.fill();
+        }
+    } else if (type === 'fleece') {
+        // 抓绒：绒团
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        for (let i = 0; i < 900; i++) {
+            const x = Math.random() * res, y = Math.random() * res, r = Math.random() * 7 + 2;
+            const grad = hCtx.createRadialGradient(x, y, 0, x, y, r);
+            grad.addColorStop(0, Math.random() > 0.5 ? 'rgba(255,255,255,0.40)' : 'rgba(0,0,0,0.35)');
+            grad.addColorStop(1, 'rgba(128,128,128,0)');
+            hCtx.fillStyle = grad;
+            hCtx.beginPath(); hCtx.arc(x, y, r, 0, Math.PI * 2); hCtx.fill();
+        }
+    } else if (type === 'habotai') {
+        // 电力纺：极细平纹
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        hCtx.lineWidth = 1;
+        for (let i = 0; i < res; i += 3) {
+            hCtx.strokeStyle = 'rgba(255,255,255,0.09)';
+            hCtx.beginPath(); hCtx.moveTo(i, 0); hCtx.lineTo(i, res); hCtx.stroke();
+            hCtx.strokeStyle = 'rgba(0,0,0,0.06)';
+            hCtx.beginPath(); hCtx.moveTo(0, i); hCtx.lineTo(res, i); hCtx.stroke();
+        }
+    } else if (type === 'brushed_metal') {
+        // 拉丝金属：单向长丝
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        for (let i = 0; i < 3000; i++) {
+            const y = Math.random() * res, x = Math.random() * res;
+            hCtx.strokeStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.30)' : 'rgba(0,0,0,0.26)';
+            hCtx.lineWidth = 1;
+            hCtx.beginPath(); hCtx.moveTo(x, y); hCtx.lineTo(x + 120, y + (Math.random() - 0.5) * 2); hCtx.stroke();
         }
     }
 
@@ -3129,6 +4416,293 @@ function createNoiseNormalMap(style) {
                 hCtx.arc(cx, cy, cellSize * 0.45, 0, Math.PI * 2);
                 hCtx.fill();
             }
+        }
+    } else if (style === 'velvet_pile') {
+        // 绒面短绒：极细密短毛，方向随机
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        hCtx.lineCap = 'round';
+        for (let i = 0; i < 24000; i++) {
+            const x = Math.random() * res, y = Math.random() * res;
+            const len = Math.random() * 4 + 1;
+            const ang = Math.random() * Math.PI * 2;
+            hCtx.strokeStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.22)';
+            hCtx.lineWidth = 1;
+            hCtx.beginPath();
+            hCtx.moveTo(x, y);
+            hCtx.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len);
+            hCtx.stroke();
+        }
+    } else if (style === 'corduroy' || style === 'corduroy_soft') {
+        // 灯芯绒：竖向绒条（软版把明暗压低）
+        const soft = style === 'corduroy_soft';
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        const cStep = soft ? 26 : 20;
+        for (let x = 0; x < res; x += cStep) {
+            const grad = hCtx.createLinearGradient(x, 0, x + cStep, 0);
+            if (soft) {
+                grad.addColorStop(0, 'rgba(150,150,150,0.9)');
+                grad.addColorStop(0.5, 'rgba(205,205,205,1)');
+                grad.addColorStop(1, 'rgba(150,150,150,0.9)');
+            } else {
+                grad.addColorStop(0, 'rgba(45,45,45,0.95)');
+                grad.addColorStop(0.5, 'rgba(225,225,225,1)');
+                grad.addColorStop(1, 'rgba(45,45,45,0.95)');
+            }
+            hCtx.fillStyle = grad;
+            hCtx.fillRect(x, 0, cStep * 0.75, res);
+        }
+        hCtx.strokeStyle = 'rgba(0,0,0,0.10)';
+        hCtx.lineWidth = 1;
+        for (let y = 0; y < res; y += 9) {
+            hCtx.beginPath(); hCtx.moveTo(0, y); hCtx.lineTo(res, y); hCtx.stroke();
+        }
+    } else if (style === 'mesh_fine') {
+        // 细网眼：密集的正交小孔，孔洞为凹陷（暗），网线为凸起（亮）
+        const MF = 26;
+        const mfStep = res / MF;
+        hCtx.fillStyle = '#8c8c8c';
+        hCtx.fillRect(0, 0, res, res);
+        for (let row = 0; row < MF; row++) {
+            for (let col = 0; col < MF; col++) {
+                const cx = (col + 0.5) * mfStep;
+                const cy = (row + 0.5) * mfStep;
+                // 孔（凹）
+                const hole = hCtx.createRadialGradient(cx, cy, 0, cx, cy, mfStep * 0.42);
+                hole.addColorStop(0, 'rgba(10,10,10,0.95)');
+                hole.addColorStop(0.62, 'rgba(40,40,40,0.85)');
+                hole.addColorStop(1, 'rgba(150,150,150,0.25)');
+                hCtx.fillStyle = hole;
+                hCtx.beginPath(); hCtx.arc(cx, cy, mfStep * 0.42, 0, Math.PI * 2); hCtx.fill();
+            }
+        }
+        // 网线（凸）
+        hCtx.strokeStyle = 'rgba(255,255,255,0.55)';
+        hCtx.lineWidth = mfStep * 0.30;
+        hCtx.lineCap = 'round';
+        for (let row = 0; row < MF; row++) {
+            const y = row * mfStep;
+            for (let col = 0; col < MF; col++) {
+                const x = col * mfStep;
+                if ((row + col) % 2 === 0) {
+                    hCtx.beginPath(); hCtx.moveTo(x, y); hCtx.lineTo(x + mfStep * 0.5, y); hCtx.stroke();
+                    hCtx.beginPath(); hCtx.moveTo(x + mfStep * 0.5, y); hCtx.lineTo(x + mfStep * 0.5, y + mfStep * 0.5); hCtx.stroke();
+                } else {
+                    hCtx.beginPath(); hCtx.moveTo(x, y + mfStep * 0.5); hCtx.lineTo(x + mfStep * 0.5, y + mfStep * 0.5); hCtx.stroke();
+                    hCtx.beginPath(); hCtx.moveTo(x + mfStep * 0.5, y + mfStep * 0.5); hCtx.lineTo(x + mfStep, y + mfStep * 0.5); hCtx.stroke();
+                }
+            }
+        }
+    } else if (style === 'hook') {
+        // 钩编：小钩针纹（开口环）
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        hCtx.strokeStyle = 'rgba(255,255,255,0.42)';
+        hCtx.lineWidth = 3;
+        const hStep = 16;
+        for (let row = 0; row < res / hStep + 1; row++) {
+            for (let col = 0; col < res / hStep + 1; col++) {
+                const cx = col * hStep;
+                const cy = row * hStep + (col % 2 ? hStep * 0.5 : 0);
+                hCtx.beginPath();
+                hCtx.arc(cx, cy, hStep * 0.34, Math.PI * 0.9, Math.PI * 2.15);
+                hCtx.stroke();
+            }
+        }
+    } else if (style === 'cable_knit') {
+        // 绞花针织：竖向麻花辫（A/B 两股交叉），每行错位一次
+        const CK = 5;
+        const ckW = res / CK;
+        hCtx.fillStyle = '#7e7e7e';
+        hCtx.fillRect(0, 0, res, res);
+        hCtx.lineCap = 'round';
+        hCtx.lineJoin = 'round';
+        for (let c = 0; c < CK; c++) {
+            const cx = ckW * (c + 0.5);
+            const amp = ckW * 0.26;
+            const period = res / 3.2;
+            for (const [phase, lw, tone] of [[0, ckW * 0.30, 'rgba(200,200,200,0.95)'], [Math.PI, ckW * 0.30, 'rgba(255,255,255,0.95)']]) {
+                hCtx.strokeStyle = tone;
+                hCtx.lineWidth = lw;
+                hCtx.beginPath();
+                for (let y = -ckW; y <= res + ckW; y += 2) {
+                    const x = cx + Math.sin((y / period) * Math.PI * 2 + phase) * amp;
+                    if (y === -ckW) hCtx.moveTo(x, y); else hCtx.lineTo(x, y);
+                }
+                hCtx.stroke();
+            }
+            // 中间的阴影沟
+            hCtx.strokeStyle = 'rgba(35,35,35,0.5)';
+            hCtx.lineWidth = ckW * 0.14;
+            hCtx.beginPath();
+            for (let y = -ckW; y <= res + ckW; y += 2) {
+                const x = cx + Math.sin((y / period) * Math.PI * 2 + Math.PI / 2) * amp * 0.5;
+                if (y === -ckW) hCtx.moveTo(x, y); else hCtx.lineTo(x, y);
+            }
+            hCtx.stroke();
+        }
+    } else if (style === 'snake') {
+        // 蛇纹：大块鳞片
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        const sStep = res / 14;
+        for (let row = -1; row < 15; row++) {
+            for (let col = -1; col < 15; col++) {
+                const cx = col * sStep + (row % 2 ? sStep * 0.5 : 0);
+                const cy = row * sStep;
+                const grad = hCtx.createRadialGradient(cx - sStep * 0.15, cy - sStep * 0.2, 0, cx, cy, sStep * 0.7);
+                grad.addColorStop(0, 'rgba(255,255,255,0.75)');
+                grad.addColorStop(0.6, 'rgba(160,160,160,0.35)');
+                grad.addColorStop(1, 'rgba(20,20,20,0.60)');
+                hCtx.fillStyle = grad;
+                hCtx.beginPath();
+                hCtx.ellipse(cx, cy, sStep * 0.62, sStep * 0.5, 0, 0, Math.PI * 2);
+                hCtx.fill();
+            }
+        }
+    } else if (style === 'leaves') {
+        // 树叶：叠放的叶片脉络
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        for (let i = 0; i < 70; i++) {
+            const x = Math.random() * res, y = Math.random() * res;
+            const len = Math.random() * 70 + 30;
+            const ang = Math.random() * Math.PI;
+            hCtx.save();
+            hCtx.translate(x, y);
+            hCtx.rotate(ang);
+            const grad = hCtx.createLinearGradient(0, 0, len, 0);
+            grad.addColorStop(0, 'rgba(255,255,255,0.60)');
+            grad.addColorStop(1, 'rgba(60,60,60,0.30)');
+            hCtx.fillStyle = grad;
+            hCtx.beginPath();
+            hCtx.ellipse(len / 2, 0, len / 2, len / 6, 0, 0, Math.PI * 2);
+            hCtx.fill();
+            hCtx.strokeStyle = 'rgba(0,0,0,0.25)';
+            hCtx.lineWidth = 1.5;
+            hCtx.beginPath(); hCtx.moveTo(0, 0); hCtx.lineTo(len, 0); hCtx.stroke();
+            hCtx.restore();
+        }
+    } else if (style === 'camouflage') {
+        // 迷彩：不规则色块
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        const tones = ['rgba(120,120,120,0.85)', 'rgba(200,200,200,0.85)', 'rgba(60,60,60,0.85)', 'rgba(160,160,160,0.85)'];
+        for (let i = 0; i < 60; i++) {
+            hCtx.fillStyle = tones[i % tones.length];
+            const x = Math.random() * res, y = Math.random() * res;
+            hCtx.beginPath();
+            const pts = 7;
+            for (let k = 0; k < pts; k++) {
+                const a = (k / pts) * Math.PI * 2;
+                const r = Math.random() * 46 + 16;
+                const px = x + Math.cos(a) * r, py = y + Math.sin(a) * r;
+                if (k === 0) hCtx.moveTo(px, py); else hCtx.lineTo(px, py);
+            }
+            hCtx.closePath();
+            hCtx.fill();
+        }
+    } else if (style === 'rain_streak') {
+        // 雨痕：顺着风向的细长水迹
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        for (let i = 0; i < 1600; i++) {
+            const x = Math.random() * res, y = Math.random() * res;
+            const len = Math.random() * 40 + 8;
+            hCtx.strokeStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.22)';
+            hCtx.lineWidth = Math.random() * 1.4 + 0.4;
+            hCtx.beginPath();
+            hCtx.moveTo(x, y);
+            hCtx.lineTo(x + len * 0.25, y + len);
+            hCtx.stroke();
+        }
+    } else if (style === 'sandstone') {
+        // 砂岩：水平层理 + 颗粒
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        for (let y = 0; y < res; y += 3) {
+            hCtx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)';
+            hCtx.fillRect(0, y, res, 2);
+        }
+        for (let i = 0; i < 7000; i++) {
+            hCtx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.24)';
+            hCtx.fillRect(Math.random() * res, Math.random() * res, 2, 1);
+        }
+    } else if (style === 'crumple') {
+        // 揉皱纸：大折痕 + 细碎裂纹
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        for (let i = 0; i < 46; i++) {
+            let x = Math.random() * res, y = Math.random() * res;
+            hCtx.lineWidth = Math.random() * 3 + 1;
+            hCtx.strokeStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)';
+            hCtx.beginPath();
+            hCtx.moveTo(x, y);
+            for (let s = 0; s < 6; s++) {
+                x += (Math.random() - 0.5) * res * 0.35;
+                y += (Math.random() - 0.5) * res * 0.35;
+                hCtx.lineTo(x, y);
+            }
+            hCtx.stroke();
+        }
+    } else if (style === 'glitter') {
+        // 闪粉：细密亮点
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        for (let i = 0; i < 14000; i++) {
+            const bright = Math.random() > 0.45;
+            hCtx.fillStyle = bright ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.55)';
+            const s = Math.random() * 2.2 + 0.6;
+            hCtx.beginPath();
+            hCtx.arc(Math.random() * res, Math.random() * res, s, 0, Math.PI * 2);
+            hCtx.fill();
+        }
+    } else if (style === 'brushed_metal') {
+        // 拉丝金属：单向长丝
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        for (let i = 0; i < 3000; i++) {
+            const y = Math.random() * res;
+            const x = Math.random() * res;
+            const len = Math.random() * 120 + 20;
+            hCtx.strokeStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.30)' : 'rgba(0,0,0,0.26)';
+            hCtx.lineWidth = 1;
+            hCtx.beginPath(); hCtx.moveTo(x, y); hCtx.lineTo(x + len, y + (Math.random() - 0.5) * 2); hCtx.stroke();
+        }
+    } else if (style === 'honeycomb') {
+        // 蜂窝：六边形格
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        const hr = 18;
+        hCtx.lineWidth = 3;
+        hCtx.strokeStyle = 'rgba(255,255,255,0.55)';
+        for (let row = 0; row < res / (hr * 1.5) + 2; row++) {
+            for (let col = 0; col < res / (hr * 1.75) + 2; col++) {
+                const cx = col * hr * 1.75 + (row % 2 ? hr * 0.875 : 0);
+                const cy = row * hr * 1.5;
+                hCtx.beginPath();
+                for (let k = 0; k < 6; k++) {
+                    const a = Math.PI / 3 * k;
+                    const px = cx + hr * Math.cos(a), py = cy + hr * Math.sin(a);
+                    if (k === 0) hCtx.moveTo(px, py); else hCtx.lineTo(px, py);
+                }
+                hCtx.closePath();
+                hCtx.stroke();
+            }
+        }
+    } else if (style === 'fleece') {
+        // 抓绒：细密乱的绒团
+        hCtx.fillStyle = '#808080';
+        hCtx.fillRect(0, 0, res, res);
+        for (let i = 0; i < 900; i++) {
+            const x = Math.random() * res, y = Math.random() * res;
+            const r = Math.random() * 7 + 2;
+            const grad = hCtx.createRadialGradient(x, y, 0, x, y, r);
+            grad.addColorStop(0, Math.random() > 0.5 ? 'rgba(255,255,255,0.40)' : 'rgba(0,0,0,0.35)');
+            grad.addColorStop(1, 'rgba(128,128,128,0)');
+            hCtx.fillStyle = grad;
+            hCtx.beginPath(); hCtx.arc(x, y, r, 0, Math.PI * 2); hCtx.fill();
         }
     }
 
@@ -3697,7 +5271,7 @@ toggleFlat.onchange = () => {
 function updateOutlineMesh() {
     if (!clothMesh || !cloth || !outlineEnabled) {
         if (outlineMesh) {
-            scene.remove(outlineMesh);
+            detachFromScene(outlineMesh);
             outlineMesh.geometry.dispose();
             outlineMat.dispose();
             outlineMesh = null;
@@ -3717,9 +5291,11 @@ function updateOutlineMesh() {
         outlineMesh = new THREE.Mesh(clothMesh.geometry.clone(), outlineMat);
         outlineMesh.frustumCulled = false;
         outlineMesh.castShadow = shadowEnabled;
-        scene.add(outlineMesh);
+        (sceneHolder || scene).add(outlineMesh);
     }
     const srcPos = clothMesh.geometry.attributes.position;
+    // 🪶 低配模式可能跳过法线计算，这里兜底补算一次，避免描边拿到 undefined
+    if (!clothMesh.geometry.attributes.normal) clothMesh.geometry.computeVertexNormals();
     const nor = clothMesh.geometry.attributes.normal;
     let dst = outlineMesh.geometry.attributes.position;
     if (!dst || dst.count !== srcPos.count) {
@@ -3737,7 +5313,7 @@ function updateOutlineMesh() {
 function updateThicknessMesh() {
     if (!clothMesh || !cloth || !thicknessEnabled) {
         if (thicknessMesh) {
-            scene.remove(thicknessMesh);
+            detachFromScene(thicknessMesh);
             if (thicknessMat) thicknessMat.dispose();
             thicknessMesh = null; thicknessMat = null;
         }
@@ -3748,7 +5324,7 @@ function updateThicknessMesh() {
         thicknessMesh.frustumCulled = false;
         thicknessMesh.renderOrder = -1;
         thicknessMesh.castShadow = shadowEnabled;
-        scene.add(thicknessMesh);
+        (sceneHolder || scene).add(thicknessMesh);
     }
     if (thicknessMat) thicknessMat.dispose();
     const useTex = thicknessTexEnabled && textureEnabled && imageTexture;
@@ -3807,9 +5383,35 @@ function makeToonGradient(steps) {
     return tex;
 }
 
+// 渔网：没有选 PBR 法线时，用一张程序化网眼 alphaMap 做镂空（不依赖任何 PBR 预设）
+let fishnetAlphaCache = null;
+function makeFishnetAlphaMap() {
+    if (fishnetAlphaCache) return fishnetAlphaCache;
+    const s = 512;
+    const c = document.createElement("canvas");
+    c.width = s; c.height = s;
+    const g = c.getContext("2d");
+    g.fillStyle = "#000000";
+    g.fillRect(0, 0, s, s);
+    g.strokeStyle = "#ffffff";
+    g.lineCap = "round";
+    g.lineWidth = s / 42;
+    for (let i = -s; i < s * 2; i += s / 12) {
+        g.beginPath(); g.moveTo(i, 0); g.lineTo(i + s, s); g.stroke();
+        g.beginPath(); g.moveTo(i, s); g.lineTo(i + s, 0); g.stroke();
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    fishnetAlphaCache = tex;
+    return tex;
+}
+
 function switchClothMaterial() {
     if (!clothMesh) return;
     clothMesh.material.dispose();
+    // 🪶 材质类型变了（尤其是低配模式跳过法线之后切回光照材质），下一帧强制重算法线
+    if (cloth) cloth._forceNormals = true;
     const rough = parseFloat(roughnessSlider.value);
     const metal = parseFloat(metalnessSlider.value);
     const isTrans = clothOpacity < 1.0 || pbrAlphaTexture !== null || (tearTexture !== null);
@@ -3837,6 +5439,13 @@ function switchClothMaterial() {
 
     let finalAlphaMap = pbrAlphaTexture;
     if (!finalAlphaMap && tearTexture) finalAlphaMap = tearTexture;
+    // 🕸 渔网：没选 PBR 网眼时用程序化网眼做镂空（与 PBR 预设无关）
+    const isFishnet = materialPresetSelect && materialPresetSelect.value === "fishnet";
+    const isFishnetAlpha = isFishnet && finalAlphaMap === fishnetAlphaCache;
+    if (!finalAlphaMap && isFishnet) {
+        finalAlphaMap = makeFishnetAlphaMap();
+        if (finalAlphaMap) finalAlphaMap.repeat.set(pbrTexSize, pbrTexSize);
+    }
 
     if (useLighting) {
         if (lightEnabled && lightStyleSelect.value === "toonShadow") {
@@ -3852,7 +5461,7 @@ function switchClothMaterial() {
                 gradientMap: toonGrad,
                 wireframe: showGrid,
                 alphaMap: finalAlphaMap,
-                alphaTest: finalAlphaMap ? 0.05 : 0
+                alphaTest: finalAlphaMap ? (isFishnetAlpha ? 0.45 : 0.05) : 0
             };
             if (needsShader) {
                 toonProps.normalMap = baseNormalForShader;
@@ -3874,7 +5483,7 @@ function switchClothMaterial() {
                 flatShading: flatShadingEnabled,
                 envMapIntensity: 1.0,
                 alphaMap: finalAlphaMap,
-                alphaTest: finalAlphaMap ? 0.05 : 0
+                alphaTest: finalAlphaMap ? (isFishnetAlpha ? 0.45 : 0.05) : 0
             };
             if (needsShader) {
                 stdProps.normalMap = baseNormalForShader;
@@ -3911,7 +5520,7 @@ function switchClothMaterial() {
             depthWrite: depthW,
             wireframe: showGrid,
             alphaMap: finalAlphaMap,
-            alphaTest: finalAlphaMap ? 0.05 : 0
+            alphaTest: finalAlphaMap ? (isFishnetAlpha ? 0.45 : 0.05) : 0
         };
         mat = new THREE.MeshBasicMaterial(basicProps);
     }
@@ -4263,6 +5872,209 @@ function renderBlurFrame() {
     renderer.setClearColor(savedColor, savedAlpha);
 }
 
+// ==============================================================
+// 🎥 3D 镜头：旋转场景 holder（正交相机本身不动，避免破坏世界坐标逻辑）
+//   PC：右键拖动转镜头，Shift+右键平移，滚轮推拉
+//   手机：屏幕方向按钮
+// ==============================================================
+let cam3DPitch = 0;      // 俯仰（度）
+let cam3DYaw = 0;        // 环绕（度）
+let cam3DPanX = 0;
+let cam3DPanY = 0;
+let cam3DZoom = 1;       // 推拉倍数
+let cam3DEnabled = false;
+let cam3DTouchLast = null;
+// 🎥 手机拖动镜头时的上一个触点
+
+// 🧷 解算时可移动固定点 → 用彩色小圆点标出它们的位置
+let pinDotsMesh = null;
+let pinDotsGeo = null;
+
+function updatePinDots() {
+    if (!scene) return;
+    const show = pinDragEnabled && !editMode && cloth && cloth.particles && hasGeneratedOnce;
+    if (!show) {
+        if (pinDotsMesh) pinDotsMesh.visible = false;
+        return;
+    }
+    const pins = [];
+    for (const p of cloth.particles) {
+        if (p.pinned) pins.push(p);
+    }
+    if (pins.length === 0) {
+        if (pinDotsMesh) pinDotsMesh.visible = false;
+        return;
+    }
+
+    if (!pinDotsMesh) {
+        pinDotsGeo = new THREE.BufferGeometry();
+        const positions = new Float32Array(pins.length * 3);
+        pinDotsGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+        const dotTex = makePinDotTexture();
+        const dotMat = new THREE.PointsMaterial({
+            // 正交相机下 sizeAttenuation 会把点缩成 0.055 像素（等于看不见），所以按像素给
+            size: 13,
+            map: dotTex,
+            transparent: true,
+            depthWrite: false,
+            depthTest: false,
+            sizeAttenuation: false,
+            alphaTest: 0.01
+        });
+        pinDotsMesh = new THREE.Points(pinDotsGeo, dotMat);
+        pinDotsMesh.renderOrder = 999;
+        pinDotsMesh.frustumCulled = false;
+        (sceneHolder || scene).add(pinDotsMesh);
+    }
+
+    const attr = pinDotsGeo.attributes.position;
+    const need = pins.length * 3;
+    if (attr.array.length < need) {
+        pinDotsGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(need), 3));
+    }
+    const arr = pinDotsGeo.attributes.position.array;
+    for (let i = 0; i < pins.length; i++) {
+        arr[i * 3] = pins[i].x;
+        arr[i * 3 + 1] = pins[i].y;
+        arr[i * 3 + 2] = pins[i].z + 0.01;
+    }
+    pinDotsGeo.attributes.position.needsUpdate = true;
+    pinDotsGeo.setDrawRange(0, pins.length);
+    pinDotsMesh.visible = true;
+    // 圆点像素大小随 DPR 调整，保证高分屏也看得清
+    if (pinDotsMesh.material) {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        pinDotsMesh.material.size = Math.max(9, Math.round(13 * dpr / 2));
+    }
+    // 3D 镜头转动时圆点也跟着场景转（本身已在 holder 内）
+
+}
+
+// 固定点小圆点贴图（粉色描边 + 白心 + 柔和光晕）
+let pinDotTextureCache = null;
+function makePinDotTexture() {
+    if (pinDotTextureCache) return pinDotTextureCache;
+    const s = 64;
+    const c = document.createElement("canvas");
+    c.width = s; c.height = s;
+    const g = c.getContext("2d");
+    const grad = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+    grad.addColorStop(0, "rgba(255,255,255,1)");
+    grad.addColorStop(0.32, "rgba(255,140,176,1)");
+    grad.addColorStop(0.55, "rgba(255,110,158,0.85)");
+    grad.addColorStop(0.78, "rgba(255,120,165,0.28)");
+    grad.addColorStop(1, "rgba(255,120,165,0)");
+    g.fillStyle = grad;
+    g.fillRect(0, 0, s, s);
+    const tex = new THREE.CanvasTexture(c);
+    pinDotTextureCache = tex;
+    return tex;
+}
+
+function applyCamera3D() {
+    if (!sceneHolder) return;
+    const pitchRad = cam3DPitch * Math.PI / 180;
+    const yawRad = cam3DYaw * Math.PI / 180;
+    sceneHolder.rotation.set(pitchRad, yawRad, 0, "XYZ");
+    sceneHolder.position.set(cam3DPanX, cam3DPanY, 0);
+    sceneHolder.scale.setScalar(cam3DZoom);
+    if (cloth) cloth._forceNormals = true;
+    updateCamera3DLabels();
+}
+
+function updateCamera3DLabels() {
+    const pEl = document.getElementById("cam3DPitchValue");
+    const yEl = document.getElementById("cam3DYawValue");
+    const zEl = document.getElementById("cam3DZoomValue");
+    if (pEl) pEl.textContent = Math.round(cam3DPitch) + "°";
+    if (yEl) yEl.textContent = Math.round(cam3DYaw) + "°";
+    if (zEl) zEl.textContent = cam3DZoom.toFixed(2);
+}
+
+function resetCamera3D() {
+    cam3DPitch = 0; cam3DYaw = 0; cam3DPanX = 0; cam3DPanY = 0; cam3DZoom = 1;
+    applyCamera3D();
+}
+
+function bindCamera3DControls() {
+    const host = document.querySelector(".canvasWrap");
+    if (!host) return;
+
+    let dragging = false, lastX = 0, lastY = 0, wantPan = false;
+
+    host.addEventListener("mousedown", (e) => {
+        if (!cam3DEnabled || e.button !== 2) return;
+        dragging = true; wantPan = e.shiftKey;
+        lastX = e.clientX; lastY = e.clientY;
+        e.preventDefault(); e.stopPropagation();
+    }, true);
+
+    window.addEventListener("mousemove", (e) => {
+        if (!dragging) return;
+        const dx = e.clientX - lastX, dy = e.clientY - lastY;
+        lastX = e.clientX; lastY = e.clientY;
+        if (wantPan) {
+            cam3DPanX += dx * 0.01;
+            cam3DPanY -= dy * 0.01;
+        } else {
+            cam3DYaw = Math.max(-180, Math.min(180, cam3DYaw - dx * 0.35));
+            cam3DPitch = Math.max(-80, Math.min(80, cam3DPitch - dy * 0.28));
+        }
+        applyCamera3D();
+        e.preventDefault();
+    }, true);
+
+    window.addEventListener("mouseup", (e) => {
+        if (e.button === 2 && dragging) { dragging = false; e.preventDefault(); }
+    }, true);
+
+    // ---- 手机方向按钮（长按连续转动）----
+    const step = 8;
+    const actions = {
+        cam3DLeft:  () => { cam3DYaw = Math.max(-180, cam3DYaw - step); },
+        cam3DRight: () => { cam3DYaw = Math.min(180, cam3DYaw + step); },
+        cam3DUp:    () => { cam3DPitch = Math.min(80, cam3DPitch + step); },
+        cam3DDown:  () => { cam3DPitch = Math.max(-80, cam3DPitch - step); },
+        cam3DIn:    () => { cam3DZoom = Math.min(2.5, cam3DZoom * 1.10); },
+        cam3DOut:   () => { cam3DZoom = Math.max(0.35, cam3DZoom * 0.90); }
+    };
+    for (const [id, fn] of Object.entries(actions)) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        let holdTimer = null;
+        const fire = () => { fn(); applyCamera3D(); };
+        el.addEventListener("click", (ev) => { ev.preventDefault(); if (!cam3DEnabled) return; fire(); });
+        el.addEventListener("pointerdown", (ev) => {
+            ev.preventDefault();
+            if (!cam3DEnabled) return;
+            holdTimer = setInterval(fire, 90);
+        });
+        const stop = () => { if (holdTimer) { clearInterval(holdTimer); holdTimer = null; } };
+        el.addEventListener("pointerup", stop);
+        el.addEventListener("pointerleave", stop);
+        el.addEventListener("pointercancel", stop);
+    }
+
+    const toggle = document.getElementById("toggleCam3D");
+    if (toggle) {
+        toggle.onchange = () => {
+            cam3DEnabled = toggle.checked;
+            // 关闭时不复位：镜头姿态保留，想回正按「复位」按钮
+            if (cam3DEnabled && typeof pinDragEnabled === "boolean" && pinDragEnabled) {
+                // 3D 镜头打开时自动关掉固定点拖动，避免拖拽/旋转抢手势
+                pinDragEnabled = false;
+                const pinToggle = document.getElementById("togglePinDrag");
+                if (pinToggle) pinToggle.checked = false;
+                draggingPins = false;
+                draggedParticles = [];
+            }
+        };
+    }
+
+    const resetBtn = document.getElementById("cam3DReset");
+    if (resetBtn) resetBtn.onclick = () => resetCamera3D();
+}
+
 function initThree() {
     scene = new THREE.Scene();
     scene.background = null;
@@ -4272,7 +6084,7 @@ function initThree() {
     camera.position.set(0, 0, 3);
 
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, lowSpecMode ? 1 : 2));
     renderer.toneMapping = THREE.NoToneMapping;
     renderer.setClearColor(0x000000, 0);
     renderer.shadowMap.enabled = true;
@@ -4286,6 +6098,10 @@ function initThree() {
 
     document.getElementById("threeContainer").appendChild(renderer.domElement);
 
+    // 🎥 3D 镜头：布料/装饰/地面/背景墙都挂到这个 holder 上，转动镜头时整体旋转
+    sceneHolder = new THREE.Group();
+    scene.add(sceneHolder);
+
     const groundGeo = new THREE.PlaneGeometry(20, 20);
     const groundMat = new THREE.ShadowMaterial({ opacity: 0.3, transparent: true, depthWrite: false });
     groundMesh = new THREE.Mesh(groundGeo, groundMat);
@@ -4293,7 +6109,7 @@ function initThree() {
     groundMesh.position.y = -1.5;
     groundMesh.receiveShadow = true;
     groundMesh.visible = false;
-    scene.add(groundMesh);
+    sceneHolder.add(groundMesh);
 
     const wallGeo = new THREE.PlaneGeometry(30, 30);
     const wallMat = new THREE.ShadowMaterial({
@@ -4306,16 +6122,19 @@ function initThree() {
     backWallMesh.position.set(0, 1.2, -2.6);
     backWallMesh.receiveShadow = true;
     backWallMesh.visible = false;
-    scene.add(backWallMesh);
+    sceneHolder.add(backWallMesh);
 
     raycaster = new THREE.Raycaster();
     mouse = new THREE.Vector2();
+
+    if (typeof bindCamera3DControls === "function") bindCamera3DControls();
 }
 
 function resizeCanvas() {
     const w = Math.max(1, canvasHost.clientWidth);
     const h = Math.max(1, canvasHost.clientHeight);
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // 🪶 低配模式最高 1 倍像素比：渲染像素直接降到 1/4，核显/手机上提升最明显
+    const dpr = Math.min(window.devicePixelRatio || 1, lowSpecMode ? 1 : 2);
 
     CANVAS_W = w; CANVAS_H = h;
 
@@ -4474,6 +6293,26 @@ function injectTooltips() {
         "matSheenRoughness":    "mat_sheen_roughness_desc",
     };
 
+    // 开关说明：给带 data-tip 的 .toggle-label 注入「?」提示（复用同一套 tooltip）
+    document.querySelectorAll('.toggle-label[data-tip]').forEach(label => {
+        if (label.querySelector('.tooltip-wrap')) return;
+        const descKey = label.getAttribute('data-tip');
+        if (!descKey) return;
+        if (label.hasAttribute('data-i18n')) {
+            const key = label.getAttribute('data-i18n');
+            label.removeAttribute('data-i18n');
+            const span = document.createElement('span');
+            span.setAttribute('data-i18n', key);
+            span.innerHTML = label.innerHTML;
+            label.innerHTML = '';
+            label.appendChild(span);
+        }
+        const tip = document.createElement('span');
+        tip.className = 'tooltip-wrap';
+        tip.innerHTML = `<i class="fa-solid fa-circle-question"></i><span class="tooltip-text" data-i18n="${descKey}"></span>`;
+        label.appendChild(tip);
+    });
+
     document.querySelectorAll('.ctrl label').forEach(label => {
         // 已有 tooltip 就跳过（防重复注入）
         if (label.querySelector('.tooltip-wrap')) return;
@@ -4567,6 +6406,104 @@ function getNDC(e) {
 
 const dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
 
+// ⌨️ 1~8 快捷键：依次套用 上边整条/2点/3点/5点/四角/全框/左右两点/恢复默认
+const QUICK_PIN_KEYS = {
+    "1": "top", "2": "top2", "3": "top3", "4": "top5",
+    "5": "corners", "6": "frame", "7": "sides", "8": "clear"
+};
+
+window.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const tag = e.target && e.target.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (e.target && e.target.isContentEditable)) return;
+    const key = QUICK_PIN_KEYS[e.key];
+    if (!key) return;
+    const btn = document.querySelector('.quick-pin-btn[data-quickpin="' + key + '"]');
+    if (btn) { btn.click(); e.preventDefault(); }
+});
+
+// 🧷 解算时拖动固定点：命中固定点则返回 true（改变固定点间距，布料实时跟随）
+function tryStartPinDrag(e) {
+    if (!pinDragEnabled || !clothMesh || !cloth) return false;
+
+    raycaster.setFromCamera(getNDC(e), camera);
+    const hits = raycaster.intersectObject(clothMesh, true);
+    const hitPoint = new THREE.Vector3();
+    if (hits.length > 0) {
+        hitPoint.copy(hits[0].point);
+    } else {
+        const plane = new THREE.Plane(getDragPlaneNormal(new THREE.Vector3()), 0);
+        if (!raycaster.ray.intersectPlane(plane, hitPoint)) return false;
+    }
+    // 世界坐标 → holder 局部坐标（镜头转过之后两者不同，不转换会拖偏）
+    if (sceneHolder) hitPoint.applyMatrix4(new THREE.Matrix4().copy(sceneHolder.matrixWorld).invert());
+
+    const grabR = parseFloat(dragRadiusSlider.value) || 0.2;
+    const grabR2 = (grabR * 1.4) * (grabR * 1.4);
+    let nearestPin = -1, bestD = grabR2;
+    for (let i = 0; i < cloth.particles.length; i++) {
+        const p = cloth.particles[i];
+        if (!p.pinned) continue;
+        const d2 = (p.x - hitPoint.x) ** 2 + (p.y - hitPoint.y) ** 2 + (p.z - hitPoint.z) ** 2;
+        if (d2 < bestD) { bestD = d2; nearestPin = i; }
+    }
+    if (nearestPin < 0) return false;
+
+    // 🧷 拖动整片固定区：把「连成一片的所有固定点」一起搬（不是只搬抓取半径内的）
+    const anchorP = cloth.particles[nearestPin];
+    draggedParticles = [];
+
+    // 整片判定：按【网格连通】找同一片固定点（相邻格 ix/iy 差 ≤ 1 即相连）
+    // 这样无论抓哪儿，整条/整框/整片固定点都会一起被搬走，不会留下没跟上的点
+    const pinSet = new Set();
+    const byGrid = new Map();   // "ix,iy" → particle index
+    for (let i = 0; i < cloth.particles.length; i++) {
+        const p = cloth.particles[i];
+        if (!p.pinned) continue;
+        pinSet.add(i);
+        byGrid.set(p.ix + "," + p.iy, i);
+    }
+    const cluster = new Set();
+    const queue = [nearestPin];
+    while (queue.length) {
+        const idx = queue.pop();
+        if (cluster.has(idx) || !pinSet.has(idx)) continue;
+        cluster.add(idx);
+        const p = cloth.particles[idx];
+        // 8 邻域（含对角）有固定点就算连在一起
+        for (let ddx = -1; ddx <= 1; ddx++) {
+            for (let ddy = -1; ddy <= 1; ddy++) {
+                if (ddx === 0 && ddy === 0) continue;
+                const ni = byGrid.get((p.ix + ddx) + "," + (p.iy + ddy));
+                if (ni !== undefined && !cluster.has(ni)) queue.push(ni);
+            }
+        }
+    }
+
+    for (const idx of cluster) {
+        const p = cloth.particles[idx];
+        draggedParticles.push({
+            index: idx,
+            ox: p.x - hitPoint.x,
+            oy: p.y - hitPoint.y,
+            oz: p.z - hitPoint.z
+        });
+    }
+    if (!draggedParticles.length) return false;
+
+    draggingPins = true;
+    dragOrigin.copy(hitPoint);
+    dragPlane.setFromNormalAndCoplanarPoint(getDragPlaneNormal(new THREE.Vector3()), hitPoint);
+    return true;
+}
+
+// 3D 镜头旋转后，拖拽用的平面要与布料所在平面一致
+function getDragPlaneNormal(out) {
+    out.set(0, 0, 1);
+    if (sceneHolder) out.applyQuaternion(sceneHolder.quaternion);
+    return out;
+}
+
 function tryStartDrag(e) {
     if (!isSimulating) return false;
     if (!clothMesh || !cloth) return false;
@@ -4579,13 +6516,15 @@ function tryStartDrag(e) {
     if (hits.length > 0) {
         hitPoint.copy(hits[0].point);
     } else {
-        const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+        const plane = new THREE.Plane(getDragPlaneNormal(new THREE.Vector3()), 0);
         const intersectRes = raycaster.ray.intersectPlane(plane, hitPoint);
         if (!intersectRes) return false;
     }
 
     draggedParticles = [];
+    draggingPins = false;
     dragOrigin.copy(hitPoint);
+
 
     if (dragMode === "single") {
         let nearest = -1, minD = Infinity;
@@ -4623,7 +6562,7 @@ function tryStartDrag(e) {
     }
 
     if (draggedParticles.length > 0) {
-        dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 0, 1), hitPoint);
+        dragPlane.setFromNormalAndCoplanarPoint(getDragPlaneNormal(new THREE.Vector3()), hitPoint);
         return true;
     }
     return false;
@@ -4683,7 +6622,7 @@ function spawnClothDebris(idxA, idxB, idxC) {
     if (!cloth) return;
     if (debrisList.length >= MAX_DEBRIS) {
         const old = debrisList.shift();
-        scene.remove(old.mesh);
+        detachFromScene(old.mesh);
         old.mesh.geometry.dispose();
         if (old.mesh.material) old.mesh.material.dispose();
     }
@@ -4754,7 +6693,7 @@ function updateDebris(dt) {
         d.mesh.rotation.z += d.vrz;
 
         if (d.mesh.position.y < -2.5) {
-            scene.remove(d.mesh);
+            detachFromScene(d.mesh);
             d.mesh.geometry.dispose();
             if (d.mesh.material) d.mesh.material.dispose();
             debrisList.splice(i, 1);
@@ -4762,8 +6701,23 @@ function updateDebris(dt) {
     }
 }
 
+// 🪶 装饰物跟随用的临时向量/矩阵（复用，避免每帧每个装饰物都 new 一堆对象）
+const _decorVX = new THREE.Vector3();
+const _decorVY = new THREE.Vector3();
+const _decorNormal = new THREE.Vector3();
+const _decorForward = new THREE.Vector3();
+const _decorUp = new THREE.Vector3();
+const _decorRight = new THREE.Vector3();
+const _decorTrueUp = new THREE.Vector3();
+const _decorMat = new THREE.Matrix4();
+
 function updateDecorations() {
     if (!cloth) return;
+    // 🪶 低配模式：装饰物跟随降到每 2 帧一次（布料形变本来就慢，肉眼几乎无感）
+    if (lowSpecMode) {
+        updateDecorations._tick = (updateDecorations._tick || 0) + 1;
+        if (updateDecorations._tick & 1) return;
+    }
     for (let i = 0; i < decorations.length; i++) {
         // 💡 确保这一行定义了 d
         const d = decorations[i];
@@ -4776,10 +6730,10 @@ function updateDecorations() {
         const pD = cloth.particles[yD * (cloth.resX + 1) + ix];
 
         // 1. 求出布料在此处的局部方向
-        const vX = new THREE.Vector3(pR.x - p.x, pR.y - p.y, pR.z - p.z).normalize();
-        const vY = new THREE.Vector3(pD.x - p.x, pD.y - p.y, pD.z - p.z).normalize();
+        const vX = _decorVX.set(pR.x - p.x, pR.y - p.y, pR.z - p.z).normalize();
+        const vY = _decorVY.set(pD.x - p.x, pD.y - p.y, pD.z - p.z).normalize();
         
-        let normal = new THREE.Vector3().crossVectors(vX, vY).normalize();
+        let normal = _decorNormal.crossVectors(vX, vY).normalize();
         if (normal.z < 0) {
             normal.negate();
             vX.negate(); 
@@ -4803,21 +6757,23 @@ function updateDecorations() {
         );
 
         // 4. 锁定朝向
-        const forward = normal.clone();
-        const up = vY.clone().negate(); 
-        const right = new THREE.Vector3().crossVectors(up, forward).normalize();
-        const trueUp = new THREE.Vector3().crossVectors(forward, right).normalize();
+        const forward = _decorForward.copy(normal);
+        const up = _decorUp.copy(vY).negate(); 
+        const right = _decorRight.crossVectors(up, forward).normalize();
+        const trueUp = _decorTrueUp.crossVectors(forward, right).normalize();
 
-        const m = new THREE.Matrix4().makeBasis(right, trueUp, forward);
-        d.mesh.quaternion.setFromRotationMatrix(m);
+        _decorMat.makeBasis(right, trueUp, forward);
+        d.mesh.quaternion.setFromRotationMatrix(_decorMat);
 
-        // 5. 渲染排序
-        d.mesh.renderOrder = (matType === 'jelly') ? 1000 : 10;
-        d.mesh.traverse((child) => {
-            if (child.isMesh) {
-                child.renderOrder = (matType === 'jelly') ? 1000 : 10;
-            }
-        });
+        // 5. 渲染排序（只在材质类型变化时重设，避免每帧 traverse）
+        if (d._renderOrderMat !== matType) {
+            d._renderOrderMat = matType;
+            const ro = (matType === 'jelly') ? 1000 : 10;
+            d.mesh.renderOrder = ro;
+            d.mesh.traverse((child) => {
+                if (child.isMesh) child.renderOrder = ro;
+            });
+        }
     }
 }
 
@@ -4826,6 +6782,22 @@ function updateDragTarget(e) {
     raycaster.setFromCamera(getNDC(e), camera);
     const newTarget = new THREE.Vector3();
     raycaster.ray.intersectPlane(dragPlane, newTarget);
+    // 世界坐标 → holder 局部坐标（3D 镜头转过之后必须转换）
+    if (newTarget && sceneHolder) newTarget.applyMatrix4(new THREE.Matrix4().copy(sceneHolder.matrixWorld).invert());
+
+    // 🧷 拖固定点：直接把固定粒子搬到指针位置（保持它们的相对间距），布料会实时跟着走
+    if (draggingPins && newTarget) {
+        for (const item of draggedParticles) {
+            const p = cloth.particles[item.index];
+            p.x = newTarget.x + item.ox;
+            p.y = newTarget.y + item.oy;
+            p.z = newTarget.z + item.oz;
+            // 固定点没有速度，避免松手瞬间把布料弹飞
+            p.oldX = p.x; p.oldY = p.y; p.oldZ = p.z;
+        }
+        if (cloth) cloth.wake();
+        return;
+    }
 
     if (newTarget) {
         let maxDist = parseFloat(maxDragDistanceSlider.value);
@@ -4885,6 +6857,7 @@ let dz = (targetZ - p.z) * dragStrength;
 
 function endDrag() {
     draggedParticles = [];
+    draggingPins = false;
 }
 
 function tearAtParticles() {
@@ -4973,9 +6946,10 @@ function tryStartClothMove(e) {
         // 如果没点中网格，通过二维平面虚拟出点
         if (!raycaster.ray.intersectPlane(clothMovePlane, hitPoint)) return false;
     }
+    if (sceneHolder) hitPoint.applyMatrix4(new THREE.Matrix4().copy(sceneHolder.matrixWorld).invert());
     
     lastClothMovePoint = hitPoint.clone(); 
-    clothMovePlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 0, 1), hitPoint);
+    clothMovePlane.setFromNormalAndCoplanarPoint(getDragPlaneNormal(new THREE.Vector3()), hitPoint);
     isMovingCloth = true;
     return true;
 }
@@ -4985,6 +6959,7 @@ function updateClothMove(e) {
     raycaster.setFromCamera(getNDC(e), camera);
     const newPoint = new THREE.Vector3();
     if (!raycaster.ray.intersectPlane(clothMovePlane, newPoint)) return;
+    if (sceneHolder) newPoint.applyMatrix4(new THREE.Matrix4().copy(sceneHolder.matrixWorld).invert());
     
     // 计算这一帧鼠标移动的增量
     const dx = newPoint.x - lastClothMovePoint.x;
@@ -5112,14 +7087,60 @@ function tryStartMultiDrag(touch) {
     raycaster.setFromCamera(ndc, camera);
 
     let hitPoint = new THREE.Vector3();
-    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+    const plane = new THREE.Plane(getDragPlaneNormal(new THREE.Vector3()), 0);
     if (!raycaster.ray.intersectPlane(plane, hitPoint)) return;
+    if (sceneHolder) hitPoint.applyMatrix4(new THREE.Matrix4().copy(sceneHolder.matrixWorld).invert());
 
     const radius = parseFloat(dragRadiusSlider.value);
     const r2 = radius * radius;
     const grabbed = [];
+    let grabbedPins = false;
 
-    for (let i = 0; i < cloth.particles.length; i++) {
+    // 🧷 多指模式下也支持拖固定点
+    if (pinDragEnabled) {
+        const pinR2 = (radius * 1.4) * (radius * 1.4);
+        let nearestPin = -1, bestD = pinR2;
+        for (let i = 0; i < cloth.particles.length; i++) {
+            const p = cloth.particles[i];
+            if (!p.pinned) continue;
+            const d2 = (p.x - hitPoint.x) ** 2 + (p.y - hitPoint.y) ** 2 + (p.z - hitPoint.z) ** 2;
+            if (d2 < bestD) { bestD = d2; nearestPin = i; }
+        }
+        if (nearestPin >= 0) {
+            const anchorP = cloth.particles[nearestPin];
+            // 整片连通固定点一起拖（按网格 8 邻域连通）
+            const pinSet = new Set();
+            const byGrid = new Map();
+            for (let i = 0; i < cloth.particles.length; i++) {
+                const p = cloth.particles[i];
+                if (!p.pinned) continue;
+                pinSet.add(i);
+                byGrid.set(p.ix + "," + p.iy, i);
+            }
+            const cluster = new Set();
+            const queue = [nearestPin];
+            while (queue.length) {
+                const idx = queue.pop();
+                if (cluster.has(idx) || !pinSet.has(idx)) continue;
+                cluster.add(idx);
+                const p = cloth.particles[idx];
+                for (let ddx = -1; ddx <= 1; ddx++) {
+                    for (let ddy = -1; ddy <= 1; ddy++) {
+                        if (ddx === 0 && ddy === 0) continue;
+                        const ni = byGrid.get((p.ix + ddx) + "," + (p.iy + ddy));
+                        if (ni !== undefined && !cluster.has(ni)) queue.push(ni);
+                    }
+                }
+            }
+            for (const idx of cluster) {
+                const p = cloth.particles[idx];
+                grabbed.push({ index: idx, ox: p.x - hitPoint.x, oy: p.y - hitPoint.y, oz: p.z - hitPoint.z });
+            }
+            grabbedPins = grabbed.length > 0;
+        }
+    }
+
+    for (let i = 0; !grabbedPins && i < cloth.particles.length; i++) {
         const p = cloth.particles[i];
         if (p.pinned) continue;
         const d2 = (p.x - hitPoint.x) ** 2 + (p.y - hitPoint.y) ** 2 + (p.z - hitPoint.z) ** 2;
@@ -5134,12 +7155,13 @@ function tryStartMultiDrag(touch) {
     }
 
     if (grabbed.length > 0) {
-        const dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
-        dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 0, 1), hitPoint);
+        const dragPlane = new THREE.Plane(getDragPlaneNormal(new THREE.Vector3()), 0);
+        dragPlane.setFromNormalAndCoplanarPoint(getDragPlaneNormal(new THREE.Vector3()), hitPoint);
         multiTouchMap.set(touch.identifier, {
             plane: dragPlane,
             origin: hitPoint.clone(),
-            dragged: grabbed
+            dragged: grabbed,
+            pinDrag: grabbedPins
         });
     }
 }
@@ -5152,6 +7174,7 @@ function updateMultiDrag(touch) {
     raycaster.setFromCamera(ndc, camera);
     const newTarget = new THREE.Vector3();
     raycaster.ray.intersectPlane(data.plane, newTarget);
+    if (newTarget && sceneHolder) newTarget.applyMatrix4(new THREE.Matrix4().copy(sceneHolder.matrixWorld).invert());
 
     if (newTarget) {
         const maxDist = parseFloat(maxDragDistanceSlider.value);
@@ -5165,6 +7188,19 @@ function updateMultiDrag(touch) {
             newTarget.z += 1.0;
         } else if (dragDepthMode === 'inward') {
             newTarget.z -= 1.0;
+        }
+
+        if (data.pinDrag) {
+            // 🧷 拖固定点：直接把固定粒子搬到目标位置，布料实时跟随
+            for (const item of data.dragged) {
+                const p = cloth.particles[item.index];
+                p.x = newTarget.x + item.ox;
+                p.y = newTarget.y + item.oy;
+                p.z = newTarget.z + item.oz;
+                p.oldX = p.x; p.oldY = p.y; p.oldZ = p.z;
+            }
+            if (cloth) cloth.wake();
+            return;
         }
 
         for (const item of data.dragged) {
@@ -5347,6 +7383,8 @@ function cutCloth(e) {
 
 function onPointerDown(e) {
     if (!editMode) {
+        // 🧷 允许拖动固定点时，优先判断是否抓住固定点
+        if (pinDragEnabled && tryStartPinDrag(e)) { e.preventDefault(); return; }
         // 👇 新增：如果开启了整体移动，优先执行
         if (clothMoveEnabled) {
             if (tryStartClothMove(e)) {
@@ -5479,8 +7517,10 @@ canvasHost.addEventListener("contextmenu", e => e.preventDefault());
 
 canvasHost.addEventListener("wheel", e => {
     e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.08 : -0.08;
-    zoom = Math.max(0.1, Math.min(3, zoom + delta));
+    // 缩放可以一路收到 0；越接近 0 步长越小，方便微调
+    const dir = e.deltaY > 0 ? 1 : -1;
+    const stepSize = Math.max(0.01, zoom * 0.12);
+    zoom = Math.max(0, Math.min(3, zoom + dir * stepSize));
     zoomSlider.value = zoom;
     document.getElementById("zoomValue").textContent = zoom.toFixed(2);
     updateCamera();
@@ -5488,6 +7528,13 @@ canvasHost.addEventListener("wheel", e => {
 
 canvasHost.addEventListener("touchstart", e => {
     if (e.target.closest('.float-back-btn')) return;
+    // 🎥 3D 镜头开启且不在编辑模式：单指拖动直接转镜头
+    if (cam3DEnabled && !editMode && e.touches.length === 1) {
+        cam3DTouchLast = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        isCanvasTouch = false;
+        e.preventDefault();
+        return;
+    }
     isCanvasTouch = true;
     if (editMode) { if (e.touches.length === 1) onPointerDown(e); return; }
     if (dragMode === "knife") {
@@ -5526,7 +7573,20 @@ canvasHost.addEventListener("touchstart", e => {
 }, { passive: false });
 
 window.addEventListener("touchmove", e => {
-    if (!isCanvasTouch) return;
+    if (!isCanvasTouch) {
+        // 🎥 3D 镜头拖动中
+        if (cam3DTouchLast && cam3DEnabled && !editMode && e.touches.length === 1) {
+            const t = e.touches[0];
+            const dx = t.clientX - cam3DTouchLast.x;
+            const dy = t.clientY - cam3DTouchLast.y;
+            cam3DTouchLast = { x: t.clientX, y: t.clientY };
+             cam3DYaw = Math.max(-180, Math.min(180, cam3DYaw - dx * 0.35));
+             cam3DPitch = Math.max(-80, Math.min(80, cam3DPitch - dy * 0.28));
+            applyCamera3D();
+            e.preventDefault();
+        }
+        return;
+    }
     if (e.target.closest('.float-back-btn')) return;
     if (editMode) { if (e.touches.length === 1) onPointerMove(e); return; }
     if (dragMode === "knife") {
@@ -5540,7 +7600,7 @@ window.addEventListener("touchmove", e => {
             const dist = Math.hypot(dx, dy);
             if (touchDistStart > 0) {
                 const delta = (touchDistStart - dist) / 300;
-                zoom = Math.max(0.1, Math.min(3, zoom + delta));
+                zoom = Math.max(0, Math.min(3, zoom + delta));
                 zoomSlider.value = zoom;
                 document.getElementById("zoomValue").textContent = zoom.toFixed(2);
                 updateCamera();
@@ -5566,7 +7626,7 @@ window.addEventListener("touchmove", e => {
             const dist = Math.hypot(dx, dy);
             if (touchDistStart > 0) {
                 const delta = (touchDistStart - dist) / 300;
-                zoom = Math.max(0.1, Math.min(3, zoom + delta));
+                zoom = Math.max(0, Math.min(3, zoom + delta));
                 zoomSlider.value = zoom;
                 document.getElementById("zoomValue").textContent = zoom.toFixed(2);
                 updateCamera();
@@ -5577,6 +7637,11 @@ window.addEventListener("touchmove", e => {
 }, { passive: false });
 
 function handleTouchEnd(e) {
+    // 🎥 手机拖动镜头结束
+    if (cam3DTouchLast && (!e.touches || e.touches.length === 0)) {
+        cam3DTouchLast = null;
+        return;
+    }
     if (!isCanvasTouch) return;
     if (e.target.closest('.float-back-btn')) {
         isCanvasTouch = false;
@@ -5624,6 +7689,7 @@ function saveStroke() {
     }
     currentPinStroke = [];
     redrawPreview();
+    updateEmptyGuide();   // 已经画了固定线，第二步引导自动收起来
 }
 
 function redrawPreview() {
@@ -5740,6 +7806,9 @@ function loadImageFile(file) {
         imgAspect = img.width / img.height;
         destroyCloth();
         pinStrokeList = []; currentPinStroke = []; decorPlacementList = [];
+    if (typeof resetCamera3D === "function") resetCamera3D();
+    const camToggle = document.getElementById("toggleCam3D");
+    if (camToggle) { camToggle.checked = false; cam3DEnabled = false; }
         clearSelection();
         refreshImageTexture();
         setEditMode(true);
@@ -5768,11 +7837,31 @@ window.addEventListener("drop", e => {
     if (e.dataTransfer && e.dataTransfer.files.length > 0) loadImageFile(e.dataTransfer.files[0]);
 });
 
+// 从它真正的父节点移除（3D 镜头开启后，布料/装饰挂在 sceneHolder 上，不是 scene）
+function detachFromScene(obj) {
+    if (!obj) return;
+    if (obj.parent) obj.parent.remove(obj);
+    else if (scene) scene.remove(obj);
+}
+
+function disposeObject3D(obj) {
+    if (!obj) return;
+    obj.traverse(node => {
+        if (node.geometry) node.geometry.dispose();
+        if (node.material) {
+            if (Array.isArray(node.material)) node.material.forEach(m => m && m.dispose());
+            else node.material.dispose();
+        }
+    });
+}
+
 function destroyCloth() {
-    if (clothMesh) { scene.remove(clothMesh); clothMesh.geometry.dispose(); clothMesh.material.dispose(); clothMesh = null; cloth = null; }
-    if (outlineMesh) { scene.remove(outlineMesh); outlineMesh.geometry.dispose(); outlineMat.dispose(); outlineMesh = null; outlineMat = null; }
-    if (thicknessMesh) { scene.remove(thicknessMesh); if (thicknessMat) thicknessMat.dispose(); thicknessMesh = null; thicknessMat = null; }
+    if (clothMesh) { detachFromScene(clothMesh); disposeObject3D(clothMesh); clothMesh = null; cloth = null; }
+    if (outlineMesh) { detachFromScene(outlineMesh); disposeObject3D(outlineMesh); outlineMesh = null; outlineMat = null; }
+    if (thicknessMesh) { detachFromScene(thicknessMesh); disposeObject3D(thicknessMesh); thicknessMesh = null; thicknessMat = null; }
     if (velocityMesh && velocityScene) { velocityScene.remove(velocityMesh); velocityMesh = null; }
+    // 固定点提示圆点也一起清掉（重建布料后会重新生成）
+    if (pinDotsMesh) { detachFromScene(pinDotsMesh); disposeObject3D(pinDotsMesh); pinDotsMesh = null; pinDotsGeo = null; }
     multiTouchMap.clear();
     draggedParticles = [];
     clothWetness = 0; waterEnabled = false; lastWetnessPercent = -1;
@@ -5780,16 +7869,215 @@ function destroyCloth() {
     activeShaderRef = null;
     if (waterDropNormalTexture) { waterDropNormalTexture.dispose(); waterDropNormalTexture = null; }
     if (waterTexRebuildTimer) { clearTimeout(waterTexRebuildTimer); waterTexRebuildTimer = null; }
-    for (const d of debrisList) { scene.remove(d.mesh); d.mesh.geometry.dispose(); if (d.mesh.material) d.mesh.material.dispose(); }
+    for (const d of debrisList) { detachFromScene(d.mesh); disposeObject3D(d.mesh); }
     debrisList = [];
     if (tearCtx) { tearCtx.fillStyle = '#ffffff'; tearCtx.fillRect(0, 0, tearCanvas.width, tearCanvas.height); if (tearTexture) tearTexture.needsUpdate = true; }
-    decorations.forEach(d => scene.remove(d.mesh));
+    decorations.forEach(d => { detachFromScene(d.mesh); disposeObject3D(d.mesh); });
     decorations = [];
     clothMoveEnabled = false;
     endClothMove();
     const moveToggle = document.getElementById("toggleClothMove");
     if (moveToggle) moveToggle.checked = false;
+    // 保险：即使 mesh 已被外部清掉，物理对象也一定要置空（否则下次生成会残留旧布料）
+    cloth = null;
+    draggingPins = false;
 }
+
+// ==============================================================
+// 🪶 低配模式（Low-Spec Mode）总控
+// --------------------------------------------------------------
+// 开关打开后：
+//   · 物理解算切到 physics-lowspec.js 里的数组化求解器（单子步 + 静止休眠）
+//   · 物理更新率 / 约束迭代 / 网格分辨率按低配上限限幅
+//   · 渲染像素比、阴影贴图降档，动态模糊自动跳过
+// 经典模式（关闭）时仍然走下面原有的 Cloth.simulate，逻辑完全不变。
+// ==============================================================
+const LOW_SPEC_KEY = "rin_cloth_low_spec";
+
+let lowSpecMode = false;
+
+const toggleLowSpecEl = document.getElementById("toggleLowSpec");
+const lowSpecBadgeEl = document.getElementById("lowSpecBadge");
+const lowSpecFpsEl = document.getElementById("lowSpecFps");
+const perfModeLabelEl = document.getElementById("perfModeLabel");
+const physicsHzEl = document.getElementById("physicsHz");
+const constraintIterationsEl = document.getElementById("constraintIterations");
+
+const lowSpecLockBuf = [];
+
+const lowSpecHost = {
+    // 每帧读一次 UI/全局参数，之后热循环里不再碰 DOM
+    getParams(out) {
+        out.simMult = parseFloat(simMultSlider.value) || 1;
+        out.wind = windEnabled ? (parseFloat(windSlider.value) || 0) : 0;
+        out.windDir = parseFloat(windDirSlider.value) || 0;
+        out.stiffness = parseFloat(stiffnessSlider.value) || 0.45;
+        out.stretchLimit = Math.max(1.001, parseFloat(maxStretchSlider.value) || 1.5);
+        out.damping = parseFloat(dampingSlider.value) || 0;
+        out.mass = Math.max(0.1, parseFloat(massSlider.value) || 25);
+        out.noiseAmp = parseFloat(windNoiseAmpSlider.value);
+        out.noiseRandom = parseFloat(windRandomSlider.value);
+        out.noiseSpeed = parseFloat(windSpeedSlider.value);
+        out.gravity = parseFloat(gravitySlider.value) || 0;
+        out.gravityAngle = gravityAngle;
+        out.windSpatialFreq = windSpatialFreq;
+        out.windZ = windZ;
+        out.airDampingExp = airDampingExp;
+        out.velocityRetention = velocityRetention;
+        out.maxVelocity = maxVelocity;
+        out.shear = shearStiffness;
+        out.stiffX = stiffX;
+        out.stiffY = stiffY;
+        out.bend = bendStiffness;
+        out.springDamp = springDamping;
+        out.iterations = parseInt(constraintIterationsEl.value) || 6;
+        out.plasticity = plasticityEnabled;
+        out.plasticityRate = plasticityRate;
+        out.plasticityThreshold = plasticityThreshold;
+        out.plasticityRecovery = plasticityRecovery;
+        out.plasticityMax = plasticityMax;
+        out.groundEnabled = groundCollisionEnabled;
+        out.groundY = groundY;
+        out.groundFriction = groundFriction;
+        out.collision = collisionEnabled;
+        return out;
+    },
+    // 拖拽中的粒子下标（复用数组，不产生垃圾）
+    getLocks() {
+        lowSpecLockBuf.length = 0;
+        for (let i = 0; i < draggedParticles.length; i++) lowSpecLockBuf.push(draggedParticles[i].index);
+        if (multiTouchMap.size) {
+            for (const data of multiTouchMap.values()) {
+                const list = data.dragged;
+                for (let i = 0; i < list.length; i++) lowSpecLockBuf.push(list[i].index);
+            }
+        }
+        return lowSpecLockBuf;
+    },
+    hasLocks() { return draggedParticles.length > 0 || multiTouchMap.size > 0; },
+    decorVersion() { return decorations.length; },
+    getDecorations() { return decorations; },
+    // 自碰撞交给经典实现跑（质量可靠），但低配下限制最多 2 遍
+    solveCollision(c, lockSet) {
+        c.buildCollisionGrid();
+        const want = parseInt(collisionItersSlider.value) || 1;
+        const passes = Math.min(want, LOW_SPEC.MAX_COLLISION_PASSES);
+        for (let i = 0; i < passes; i++) c.solveCollision(lockSet);
+    },
+    afterSolve(c) {
+        c.updateGeo();
+        if (outlineEnabled && outlineMesh) updateOutlineMesh();
+    }
+};
+
+// 极弱设备首次打开时自动启用（之后跟随用户的选择，记在 localStorage）
+function detectWeakDevice() {
+    const cores = navigator.hardwareConcurrency || 4;
+    const mem = navigator.deviceMemory || 0; // 仅 Chromium 系提供，单位 GB
+    return cores <= 2 || (mem > 0 && mem <= 2);
+}
+
+function loadLowSpecSetting() {
+    try {
+        const saved = localStorage.getItem(LOW_SPEC_KEY);
+        if (saved === "1") return true;
+        if (saved === "0") return false;
+    } catch (e) { /* 隐私模式 / 沙盒环境下忽略 */ }
+    return detectWeakDevice();
+}
+
+// 渲染侧的降档：阴影贴图尺寸 + 阴影过滤方式
+function applyLowSpecRenderQuality() {
+    if (!renderer) return;
+    if (renderer.shadowMap) {
+        renderer.shadowMap.type = lowSpecMode ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+        renderer.shadowMap.needsUpdate = true;
+    }
+    if (dirLight && dirLight.shadow) {
+        const size = lowSpecMode ? LOW_SPEC.SHADOW_SIZE : 2048;
+        if (dirLight.shadow.mapSize.width !== size) {
+            dirLight.shadow.mapSize.set(size, size);
+            if (dirLight.shadow.map) {
+                dirLight.shadow.map.dispose();
+                dirLight.shadow.map = null;
+            }
+        }
+    }
+    // 阴影过滤方式变了需要重新编译 shader（只在外层材质上标脏，不递归改贴图）
+    if (scene) {
+        scene.traverse((obj) => {
+            if (!obj.isMesh || !obj.material) return;
+            const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+            for (let i = 0; i < mats.length; i++) {
+                if (mats[i]) mats[i].needsUpdate = true;
+            }
+        });
+    }
+}
+
+// 当前渲染是否真的用得到顶点法线（纯色 + 无光照 + 无描边/厚度时用不到）
+// → 低配模式下这种最常见的情况可以整帧跳过 computeVertexNormals()
+function clothNeedsNormals() {
+    if (outlineEnabled || thicknessEnabled) return true;
+    if (!clothMesh || !clothMesh.material) return true;
+    if (!clothMesh.material.isMeshBasicMaterial) return true;   // 受光材质必须有法线
+    if (pbrBaseNormalTexture || pbrNoiseNormalTexture) return true;
+    if (holoEnabled || (waterEnabled && lightEnabled)) return true;
+    return false;
+}
+
+// FPS 角标：常驻显示，低配模式开启时额外亮出标签
+function updatePerfBadge() {
+    if (!lowSpecBadgeEl) return;
+    lowSpecBadgeEl.style.display = "inline-flex";
+    lowSpecBadgeEl.classList.toggle("classic", !lowSpecMode);
+    if (perfModeLabelEl) perfModeLabelEl.style.display = lowSpecMode ? "inline-flex" : "none";
+}
+
+function setLowSpecMode(on, opts = {}) {
+    on = !!on;
+    lowSpecMode = on;
+
+    if (toggleLowSpecEl) toggleLowSpecEl.checked = on;
+    updatePerfBadge();
+    if (lowSpecFpsEl) lowSpecFpsEl.textContent = "-- FPS";
+    lowSpecFpsCount = 0;
+    lowSpecFpsTime = 0;
+
+    // 切换后让布料立刻重新解算，避免停在休眠状态
+    if (cloth) cloth.wake();
+
+    applyLowSpecRenderQuality();
+    resizeCanvas();               // 低配会降低渲染像素比
+    if (clothMesh) {
+        switchClothMaterial();    // 阴影类型变了，材质需要重新编译
+        if (thicknessEnabled) updateThicknessMesh();
+    }
+
+    if (!opts.silent) {
+        try { localStorage.setItem(LOW_SPEC_KEY, on ? "1" : "0"); } catch (e) { }
+    }
+}
+
+if (toggleLowSpecEl) {
+    toggleLowSpecEl.onchange = () => setLowSpecMode(toggleLowSpecEl.checked);
+}
+
+// 任何一次「操作」都顺手唤醒低配求解器：
+// 改参数 / 拖拽 / 切割之后都要能立刻看到反应，不能被休眠卡住。
+document.addEventListener('pointerdown', () => { if (cloth) cloth.wake(); }, true);
+document.addEventListener('keydown', () => { if (cloth) cloth.wake(); }, true);
+(function bindLowSpecWakeOnUI() {
+    const uiEl = document.getElementById("ui");
+    if (!uiEl) return;
+    const wake = () => { if (cloth) cloth.wake(); };
+    uiEl.addEventListener('input', wake, true);
+    uiEl.addEventListener('change', wake, true);
+})();
+
+// FPS 计数（角标常驻，两种模式都显示）
+let lowSpecFpsCount = 0;
+let lowSpecFpsTime = 0;
 
 // ==============================================================
 // 🟢 核心重写：引入子步 (Substeps) 来彻底解决抖动和蜷缩
@@ -6004,11 +8292,29 @@ addBendSpring(i, j) {
         }
         this.geometry.attributes.position.needsUpdate = true;
         this.geometry.attributes.prevPosition.needsUpdate = true;
-        this.geometry.computeVertexNormals();
-        const normals = this.geometry.attributes.normal.array;
-        if (!this.normals) this.normals = new Float32Array(this.particles.length * 3);
-        this.normals.set(normals);
+
+        // 🪶 低配模式：法线降到低频（无光照的纯色材质甚至完全不算）
+        const needNormals = !lowSpecMode || this._forceNormals || clothNeedsNormals();
+        if (needNormals) {
+            this._normalTick = (this._normalTick || 0) + 1;
+            const interval = lowSpecMode ? 2 : 1;
+            if (this._forceNormals || interval === 1 || this._normalTick >= interval) {
+                this._normalTick = 0;
+                this._forceNormals = false;
+                this.geometry.computeVertexNormals();
+                const nArr = this.geometry.attributes.normal.array;
+                if (!this.normals) this.normals = new Float32Array(this.particles.length * 3);
+                this.normals.set(nArr);
+            }
+        }
+
         if (thicknessEnabled && this.thicknessGeometry) {
+            // 厚度层需要法线：万一之前被跳过就补算一次
+            if (!this.normals) {
+                this.geometry.computeVertexNormals();
+                this.normals = new Float32Array(this.geometry.attributes.normal.array);
+            }
+            const normals = this.normals;
             const thick = parseFloat(thicknessSizeSlider.value);
             const tArr = this.thicknessGeometry.attributes.position.array;
             const nParticles = this.particles.length;
@@ -6145,7 +8451,18 @@ addBendSpring(i, j) {
         this.collisionFrameCount++;
     }
 
+    // 🪶 唤醒低配求解器（切换模式 / 改参数 / 继续解算时调用）
+    wake() {
+        if (this._fast) this._fast.wake();
+    }
+
 simulate(dt) {
+    // 🪶 低配模式：切换到数组化单子步求解器（physics-lowspec.js）
+    if (lowSpecMode) {
+        if (!this._fast) this._fast = new LowSpecSolver({ cloth: this, host: lowSpecHost });
+        this._fast.simulate(dt);
+        return;
+    }
     const lockedIndices = new Set();
     for (const item of draggedParticles) lockedIndices.add(item.index);
     for (const data of multiTouchMap.values()) {
@@ -6171,11 +8488,13 @@ simulate(dt) {
     
     const stretchLimit = parseFloat(maxStretchSlider.value);
     const effectiveStiff = stiff * (1.5 / stretchLimit);
+    // 🧵 硬拉伸上限：只给 stretchLimit 的一小部分（真实布料 1~3%），弹性材料则按比例放宽
+    const strainHardCap = Math.min(2.0, Math.max(1.012, 1 + (stretchLimit - 1) * 0.28));
 
     // ===== 新增参数读取 =====
     const gBase = parseFloat(gravitySlider.value); // 0~0.3，默认 0.1
     // 🟢 因为分成了 3 个子步，加速度的位移被缩小了 3 倍，这里补偿回来！
-    const gravityAccel = gBase * 120; 
+    const gravityAccel = gBase * 150; 
     const gAng = gravityAngle * Math.PI / 180;
     const gravGX = Math.sin(gAng);
     const gravGY = -Math.cos(gAng);
@@ -6297,28 +8616,38 @@ simulate(dt) {
                     }
                 }
 
-                const maxStretch = s.restLength * stretchLimit;
+                // ===== 拉伸约束：软弹性区间 + 硬上限投影（锁死拉伸，这才不会像橡皮筋）=====
+                // 真实机织布拉伸应变只有 1~3%，所以把允许伸长量压到 stretchLimit 的一小部分，
+                // 且一旦超过就【完全投影】回硬上限（不是只拉回一半），杜绝拉长—回弹。
+                const hardLimit = s.restLength * strainHardCap;
                 let diffX = 0, diffY = 0, diffZ = 0;
-                if (dist > maxStretch) {
-                    // 如果超出了最大拉伸
-                    const excess = dist - maxStretch;
-                    const nx = dx / dist, ny = dy / dist, nz = dz / dist;
-                    
-                    // 🟢 核心修复 1：不要一次性全部拉回，只拉回一部分，或者限制单次最大拉力，防止弹弓效应
-                    const pullAmount = Math.min(excess * 0.5, 0.05); // 最多单次修正 0.05 的距离
-                    diffX = nx * pullAmount; diffY = ny * pullAmount; diffZ = nz * pullAmount;
-
-                    // 🟢 核心修复 2：强行消耗超限弹簧的动能，防止它一直抖动
-                    p1.oldX = p1.x - (p1.x - p1.oldX) * 0.5;
-                    p1.oldY = p1.y - (p1.y - p1.oldY) * 0.5;
-                    p1.oldZ = p1.z - (p1.z - p1.oldZ) * 0.5;
-                    
-                    p2.oldX = p2.x - (p2.x - p2.oldX) * 0.5;
-                    p2.oldY = p2.y - (p2.y - p2.oldY) * 0.5;
-                    p2.oldZ = p2.z - (p2.z - p2.oldZ) * 0.5;
-
+                if (dist > hardLimit) {
+                    // 超出硬上限：把超出量投影掉（修正量为正 = 沿连线拉近）
+                    const corr = ((dist - hardLimit) * 0.9) / dist;
+                    diffX = dx * corr; diffY = dy * corr; diffZ = dz * corr;
+                    // 单次修正上限按静止长度比例，避免一次拉太猛过冲
+                    const pm = Math.sqrt(diffX*diffX + diffY*diffY + diffZ*diffZ);
+                    const passMax = s.restLength * 0.6;
+                    if (pm > passMax) {
+                        const sc2 = passMax / pm;
+                        diffX *= sc2; diffY *= sc2; diffZ *= sc2;
+                    }
+                    // 顺手消耗超限弹簧的动能，防止回弹抖动
+                    p1.oldX = p1.x - (p1.x - p1.oldX) * 0.35;
+                    p1.oldY = p1.y - (p1.y - p1.oldY) * 0.35;
+                    p1.oldZ = p1.z - (p1.z - p1.oldZ) * 0.35;
+                    p2.oldX = p2.x - (p2.x - p2.oldX) * 0.35;
+                    p2.oldY = p2.y - (p2.y - p2.oldY) * 0.35;
+                    p2.oldZ = p2.z - (p2.z - p2.oldZ) * 0.35;
                 } else {
-                    const diff = (dist - s.restLength) / dist * localStiff;
+                    // 弹性区间：软约束回静止长度；超过 1.5% 应变后刚度非线性升高（小形变可弯、一拉就硬）
+                    const strain = dist / s.restLength;
+                    let lk2 = localStiff;
+                    if (strain > 1.015) {
+                        lk2 = localStiff + (1.0 - localStiff) * Math.min(1, (strain - 1.015) / Math.max(0.001, strainHardCap - 1.015));
+                    }
+                    if (lk2 > 1) lk2 = 1;
+                    const diff = (dist - s.restLength) / dist * lk2;
                     diffX = dx * diff; diffY = dy * diff; diffZ = dz * diff;
                 }
 
@@ -6342,6 +8671,7 @@ simulate(dt) {
             }
 
             // ===== 弯曲弹簧（不参与撕裂与塑性）=====
+            // 弯曲保持柔顺（褶皱来源），但加一层阻尼吃掉来回振荡 → 不会像橡皮筋弹
             if (bendK > 0.001 && this.bendSprings.length) {
                 for (const s of this.bendSprings) {
                     if (s.broken) continue;
@@ -6356,6 +8686,7 @@ simulate(dt) {
                     // 🟢 核心修复：极弱化弯曲力，使得布料弯曲变得极其柔顺（圆弧状）
                     const diff = (dist - s.restLength) / dist * bendK * 0.05;
                     let diffX = dx * diff, diffY = dy * diff, diffZ = dz * diff;
+
                     const mc = 0.1;
                     diffX = Math.max(-mc, Math.min(mc, diffX));
                     diffY = Math.max(-mc, Math.min(mc, diffY));
@@ -6386,8 +8717,17 @@ simulate(dt) {
 
 document.getElementById("genBtn").onclick = () => {
     if (!loadedImage) { alert(window.I18N[window.currentLang].alert_no_img); return; }
+    // 🧵 先用当前预设自带的网格密度去初始化滑块（用户之后仍可手动改）
+    const presetKey = physicsPresetSelect.value;
+    const presetForMesh = physicsPresets[presetKey];
+    if (presetKey !== "custom" && presetForMesh && presetForMesh.meshRes) {
+        meshResSlider.value = presetForMesh.meshRes;
+        document.getElementById("meshResValue").textContent = presetForMesh.meshRes;
+    }
     destroyCloth();
-    const meshRes = parseInt(meshResSlider.value);
+    // 🪶 低配模式：网格分辨率限幅（顶点数直接决定解算量）
+    const rawRes = parseInt(meshResSlider.value);
+    const meshRes = lowSpecMode ? Math.min(rawRes, LOW_SPEC.MAX_RES) : rawRes;
     let maxW = BOUND_SCALE * 2 * 0.95;
     let maxH = maxW;
     if (imgAspect >= 1) maxH = maxW / imgAspect; else maxW = maxH * imgAspect;
@@ -6395,7 +8735,7 @@ document.getElementById("genBtn").onclick = () => {
 
     cloth = new Cloth(bounds, pinStrokeList, meshRes);
     clothMesh = cloth.mesh;
-    scene.add(clothMesh);
+    (sceneHolder || scene).add(clothMesh);
 
     // ✅ 修复：装饰物坐标映射（解决上下颠倒问题）
     for (const d of decorPlacementList) {
@@ -6432,10 +8772,111 @@ document.getElementById("genBtn").onclick = () => {
     thicknessColorCtrl.style.display = (thicknessEnabled && !thicknessTexEnabled) ? "block" : "none";
 
     setEditMode(false);
+    hasGeneratedOnce = true;   // 生成过一次后就不再弹第二步引导
     if (!isSimulating) pauseBtn.click();
-    if (rotXSlider) { rotXSlider.value = 0; rotXValue.textContent = "0°"; prevRotX = 0; }
-    if (rotZSlider) { rotZSlider.value = 0; rotZValue.textContent = "0°"; prevRotZ = 0; }
+    // 🧵 旋转清零后，再按当前预设套用默认悬挂角度
+    prevRotX = 0; prevRotY = 0; prevRotZ = 0;
+    if (rotXSlider) { rotXSlider.value = 0; rotXValue.textContent = "0°"; }
+    if (rotYSlider) { rotYSlider.value = 0; rotYValue.textContent = "0°"; }
+    if (rotZSlider) { rotZSlider.value = 0; rotZValue.textContent = "0°"; }
+    applyRestPose(physicsPresetSelect.value);
 };
+
+// ==============================================================
+// 🧷 快速固定（Quick Pinning）
+// 一键铺好固定点：上边整条 / 上边 2~5 点 / 四角 / 四周全框 / 左右两点 / 清除
+// 另外提供「解算时可拖动固定点」，拖动时改变两点间距，布料会实时跟着走。
+// ==============================================================
+let pinDragEnabled = false;      // 解算时是否允许拖动固定点
+let draggingPins = false;        // 当前这次拖拽是不是在拖固定点
+
+// 画布 UV → 布料世界坐标（与 getPreviewPointer 里的映射完全一致）
+function pinUvToWorld(u, v) {
+    let maxW = BOUND_SCALE * 2 * 0.95;
+    let maxH = maxW;
+    if (imgAspect >= 1) maxH = maxW / imgAspect;
+    else maxW = maxH * imgAspect;
+    return { x: u * maxW - maxW / 2, y: maxH / 2 - v * maxH, u, v };
+}
+
+// 一条固定线段（uv 坐标，v=0 是上边）
+function pinEdgeStroke(u1, v1, u2, v2, w) {
+    const a = pinUvToWorld(u1, v1);
+    const b = pinUvToWorld(u2, v2);
+    return { points: [{ x: a.x, y: a.y }, { x: b.x, y: b.y }], w: w };
+}
+
+// 一个"点"固定（用极短线段 + 稍大的半径，能钉住一小撮粒子）
+function pinDotStroke(u, v, w) {
+    const r = Math.max(w, 0.06);
+    return pinEdgeStroke(u, v, u + 0.0015, v, r);
+}
+
+const QUICK_PIN_PATTERNS = {
+    top:    (w) => [pinEdgeStroke(0, 0, 1, 0, w)],
+    // 2/3/5 点都从贴图的两个上角开始，再向内均分（N 点 = N 等分的顶点）
+    top2:   (w) => [pinDotStroke(0, 0, w), pinDotStroke(1, 0, w)],
+    top3:   (w) => [pinDotStroke(0, 0, w), pinDotStroke(0.5, 0, w), pinDotStroke(1, 0, w)],
+    top5:   (w) => [0, 0.25, 0.5, 0.75, 1].map(u => pinDotStroke(u, 0, w)),
+    corners:(w) => [pinDotStroke(0, 0, w), pinDotStroke(1, 0, w), pinDotStroke(0, 1, w), pinDotStroke(1, 1, w)],
+    frame:  (w) => [
+        pinEdgeStroke(0, 0, 1, 0, w),
+        pinEdgeStroke(0, 1, 1, 1, w),
+        pinEdgeStroke(0, 0, 0, 1, w),
+        pinEdgeStroke(1, 0, 1, 1, w)
+    ],
+    sides:  (w) => [pinDotStroke(0, 0.5, w), pinDotStroke(1, 0.5, w)],
+    clear:  () => []
+};
+
+function applyQuickPin(key) {
+    if (!loadedImage) {
+        alert(window.I18N[window.currentLang].alert_no_img);
+        return;
+    }
+    const build = QUICK_PIN_PATTERNS[key];
+    if (!build) return;
+
+    saveHistory();
+    const w = Math.max(0.02, parseFloat(pinRadiusSlider.value) || 0.04);
+    pinStrokeList = build(w);
+    currentPinStroke = [];
+    redrawPreview();
+
+    // 固定点是"生成布料"时参与的属性：已经有布料就按新固定方式重算一次
+    if (cloth) {
+        const genBtnEl = document.getElementById("genBtn");
+        if (genBtnEl) genBtnEl.click();
+    } else {
+        updateEmptyGuide();
+    }
+}
+
+(function bindQuickPinUI() {
+    const btns = document.querySelectorAll(".quick-pin-btn");
+    for (const btn of btns) {
+        btn.onclick = () => {
+            for (const b of btns) b.classList.remove("active");
+            btn.classList.add("active");
+            applyQuickPin(btn.dataset.quickpin);
+        };
+    }
+    const toggle = document.getElementById("togglePinDrag");
+    if (toggle) {
+        toggle.onchange = () => {
+            pinDragEnabled = toggle.checked;
+            if (!pinDragEnabled) { draggingPins = false; draggedParticles = []; }
+            if (typeof updatePinDots === "function") updatePinDots();
+            // 两个拖拽模式互斥：要拖固定点时自动关掉 3D 镜头，避免抢手势
+            if (pinDragEnabled && typeof cam3DEnabled !== "undefined" && cam3DEnabled) {
+                cam3DEnabled = false;
+                const camToggle = document.getElementById("toggleCam3D");
+                if (camToggle) camToggle.checked = false;
+            }
+        };
+    }
+})();
+
 
 function setEditMode(on) {
     editMode = on;
@@ -6446,7 +8887,37 @@ function setEditMode(on) {
         if (typeof endDrag === "function") endDrag();
         multiTouchMap.clear();
     }
+    updateEmptyGuide();
 }
+
+// ==============================================================
+// 🪶 空白区引导：没图片时引导上传，有图片时引导"画固定区域 → 生成布料"
+// ==============================================================
+function updateEmptyGuide() {
+    const guide = document.getElementById("emptyGuide");
+    if (!guide) return;
+    const stepUpload = document.getElementById("guideStepUpload");
+    const stepPin = document.getElementById("guideStepPin");
+
+    // 有布料（进入解算/交互状态）就不用引导了
+    const show = editMode && !cloth;
+    guide.style.display = show ? "block" : "none";
+    if (!show) return;
+
+    const noImage = !loadedImage;
+    // 第二步只在"有图、还没画固定线、并且这次会话还没生成过布料"时出现，
+    // 避免打扰已经会用的用户。
+    const showPin = !noImage && !hasGeneratedOnce && pinStrokeList.length === 0;
+    if (stepUpload) stepUpload.style.display = noImage ? "block" : "none";
+    if (stepPin) stepPin.style.display = showPin ? "flex" : "none";
+}
+
+(function bindEmptyGuide() {
+    const uploadBtn = document.getElementById("guideUploadBtn");
+    if (uploadBtn) uploadBtn.onclick = () => document.getElementById("fileInput").click();
+    const genBtn = document.getElementById("guideGenBtn");
+    if (genBtn) genBtn.onclick = () => document.getElementById("genBtn").click();
+})();
 
 document.getElementById("backToEditBtn").onclick = () => { destroyCloth(); setEditMode(true); };
 document.getElementById("clearStrokeBtn").onclick = () => { saveHistory(); pinStrokeList = []; currentPinStroke = []; redrawPreview(); };
@@ -6812,8 +9283,10 @@ toggleLight.onchange = () => {
             dirLight.position.set(parseFloat(lightXSlider.value), parseFloat(lightYSlider.value), parseFloat(lightZSlider.value));
             
             dirLight.castShadow = true; 
-            dirLight.shadow.mapSize.width = 2048; 
-            dirLight.shadow.mapSize.height = 2048;
+            // 🪶 低配模式用更小的阴影贴图
+            const shadowSize = lowSpecMode ? LOW_SPEC.SHADOW_SIZE : 2048;
+            dirLight.shadow.mapSize.width = shadowSize; 
+            dirLight.shadow.mapSize.height = shadowSize;
             dirLight.shadow.camera.near = 0.1; 
             dirLight.shadow.camera.far = 20;
             dirLight.shadow.camera.left = -5; 
@@ -6852,16 +9325,24 @@ const MAX_STEPS = 4;
 function animate() {
     requestAnimationFrame(animate);
     const now = performance.now();
-    let frameTime = (now - lastTime) / 1000;
+    const rawFrameTime = (now - lastTime) / 1000;   // 真实帧间隔（FPS 用它算）
     lastTime = now;
-    if (frameTime > 0.1) frameTime = 0.1;
+    let frameTime = rawFrameTime;
+    // 🪶 低配模式收紧单帧时间上限，避免卡顿时越补越慢（死亡螺旋）
+    const frameCap = lowSpecMode ? 0.05 : 0.1;
+    if (frameTime > frameCap) frameTime = frameCap;
     accumulator += frameTime;
 
-    const physicsHz = parseInt(document.getElementById("physicsHz")?.value || "100");
+    let physicsHz = parseInt(physicsHzEl ? physicsHzEl.value : "100") || 100;
+    // 🪶 低配模式物理更新率上限 60Hz
+    if (lowSpecMode && physicsHz > LOW_SPEC.MAX_HZ) physicsHz = LOW_SPEC.MAX_HZ;
     const FIXED_DT = 1.0 / physicsHz;
+    // 🪶 低配模式每帧最多补 3 次步进：帧率低于 60fps 时也能追上真实时间，
+    //    否则布料会变成"慢动作"，看起来就是轻飘飘地飘不动。
+    const maxSteps = lowSpecMode ? 3 : MAX_STEPS;
 
     let steps = 0;
-    while (accumulator >= FIXED_DT && steps < MAX_STEPS) {
+    while (accumulator >= FIXED_DT && steps < maxSteps) {
         if (isSimulating) {
             if (cloth) cloth.simulate(FIXED_DT);
             if (clothWetness > 0) updateWetness(FIXED_DT);
@@ -6871,10 +9352,26 @@ function animate() {
         accumulator -= FIXED_DT;
         steps++;
     }
-    if (steps === MAX_STEPS) accumulator = 0;
+    // 追不上时丢掉积压，但保留半个步长的相位：
+    // 直接清零会让「帧时间略大于固定步长」的情况硬生生掉到一半频率。
+    if (steps >= maxSteps && accumulator > FIXED_DT * 0.5) accumulator = FIXED_DT * 0.5;
+
+    // 🪶 性能角标：FPS 常驻显示（低配模式是否真的更流畅，一眼就能看出来）
+    if (lowSpecFpsEl) {
+        lowSpecFpsCount++;
+        lowSpecFpsTime += rawFrameTime;
+        if (lowSpecFpsTime >= 0.5) {
+            lowSpecFpsEl.textContent = Math.round(lowSpecFpsCount / lowSpecFpsTime) + " FPS";
+            lowSpecFpsCount = 0;
+            lowSpecFpsTime = 0;
+        }
+    }
+
+    updatePinDots();
 
     if (renderer) {
-        if (blurEnabled && rtScene && postMat) renderBlurFrame();
+        // 🪶 低配模式跳过全屏后处理（动态模糊是纯额外开销）
+        if (blurEnabled && !lowSpecMode && rtScene && postMat) renderBlurFrame();
         else { renderer.setRenderTarget(null); renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.render(scene, camera); }
     }
 }
@@ -6898,8 +9395,24 @@ initTearCanvas();
 initThree();
 initBlur();
 resizeCanvas();
+// 🧵 由数据表生成所有预设下拉框（物理 / 材质 / 风力 / 碰撞 / 撕扯）
+fillPhysicsPresetOptions();
+fillMaterialPresetOptions();
+fillWindPresetOptions();
+fillCollisionPresetOptions();
+fillTearPresetOptions();
+fillTextureFilterOptions();
+fillPbrTextureOptions();
+// 让滑块显示值与默认预设一致
+applyPresetToSliders(physicsPresets.cotton);
+physicsPresetSelect.value = "cotton";
+
+// 🪶 低配模式：读取上次的选择（极弱设备首次访问会自动开启）
+setLowSpecMode(loadLowSpecSetting(), { silent: true });
 animate();
 redrawPreview();
+// 🪶 打开页面时在空白区给出引导（上传图片 → 画固定区域 → 生成布料）
+updateEmptyGuide();
 
 updateBgTransform();
 window.addEventListener("resize", () => { resizeCanvas(); });

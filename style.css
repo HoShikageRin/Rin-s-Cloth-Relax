@@ -1115,3 +1115,385 @@ input[type="color"]::-moz-color-swatch {
     color: var(--primary);
     transform: scale(1.15);
 }
+
+
+
+/* ==========================================================
+   🎥 3D 镜头方向按钮
+   ========================================================== */
+
+.cam3d-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+}
+
+.cam3d-bar .cam3d-reset {
+    width: auto;
+    padding: 0 12px;
+    height: 30px;
+    font-size: 11px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.cam3d-pad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-areas:
+        ". up ."
+        "left reset right"
+        ". down .";
+    gap: 6px;
+    margin-top: 8px;
+    max-width: 190px;
+}
+
+.cam3d-pad #cam3DUp { grid-area: up; }
+.cam3d-pad #cam3DDown { grid-area: down; }
+.cam3d-pad #cam3DLeft { grid-area: left; }
+.cam3d-pad #cam3DRight { grid-area: right; }
+.cam3d-pad #cam3DReset { grid-area: reset; }
+
+.cam3d-btn {
+    height: 32px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.85);
+    background: rgba(255, 255, 255, 0.85);
+    color: var(--primary-dark);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.18s, transform 0.12s;
+    box-shadow: 0 2px 6px rgba(180, 160, 170, 0.12);
+    touch-action: none;
+}
+
+.cam3d-btn:hover { background: rgba(255, 226, 234, 0.92); }
+.cam3d-btn:active { transform: scale(0.94); }
+.cam3d-reset { font-size: 11px; }
+
+.cam3d-zoom-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    max-width: 100%;
+}
+
+.cam3d-zoom-row .cam3d-btn { width: 34px; flex-shrink: 0; }
+
+.cam3d-readout {
+    font-size: 10px;
+    color: var(--text-muted, #8a8a99);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ==========================================================
+   🧷 快速固定（折叠面板）
+   ========================================================== */
+/* 快速固定（折叠面板） */
+.quick-pin-block {
+    margin-top: 12px;
+    padding: 0;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    overflow: hidden;
+}
+
+.quick-pin-block > summary {
+    list-style: none;
+    cursor: pointer;
+    margin: 0;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--primary-dark);
+    user-select: none;
+    transition: background 0.2s;
+}
+
+.quick-pin-block > summary::-webkit-details-marker { display: none; }
+.quick-pin-block > summary::after {
+    content: "\f078";
+    font-family: "Font Awesome 6 Free";
+    font-weight: 900;
+    font-size: 10px;
+    margin-left: auto;
+    transition: transform 0.2s;
+    opacity: 0.6;
+}
+
+.quick-pin-block[open] > summary::after { transform: rotate(180deg); }
+.quick-pin-block > summary:hover { background: rgba(255, 226, 234, 0.55); }
+
+.quick-pin-body {
+    padding: 0 12px 12px;
+}
+
+
+.quick-pin-head .quick-pin-tip {
+    font-weight: 400;
+    font-size: 10px;
+    color: var(--text-muted, #8a8a99);
+    opacity: 0.85;
+}
+
+
+.quick-pin-keys {
+    margin: 6px 0 0;
+    font-size: 10px;
+    line-height: 1.5;
+    color: var(--text-muted, #8a8a99);
+    opacity: 0.75;
+}
+
+.quick-pin-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+}
+
+.quick-pin-btn {
+    padding: 7px 4px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    background: rgba(255, 255, 255, 0.8);
+    color: var(--text-main);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
+    box-shadow: 0 2px 6px rgba(180, 160, 170, 0.12);
+}
+
+.quick-pin-btn:hover {
+    background: rgba(255, 226, 234, 0.9);
+}
+
+.quick-pin-btn:active {
+    transform: scale(0.94);
+}
+
+.quick-pin-btn.active {
+    background: linear-gradient(135deg, rgba(255, 205, 220, 0.95), rgba(255, 175, 198, 0.9));
+    color: #7A2B3D;
+    border-color: rgba(255, 255, 255, 0.9);
+}
+
+@media (max-width: 520px) {
+    .quick-pin-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* ==========================================================
+   🪶 低配模式（Low-Spec Mode）
+   ========================================================== */
+.lowspec-toggle {
+    border: 1px dashed rgba(255, 183, 197, 0.75);
+    background: rgba(255, 240, 243, 0.55);
+}
+
+.lowspec-toggle .toggle-label {
+    display: inline-flex;
+    align-items: center;
+}
+
+.lowspec-hint {
+    color: #8a7a80;
+    line-height: 1.6;
+}
+
+/* 画布右下角的性能角标（FPS 常驻；低配模式亮起时变成粉色高亮，不吃点击） */
+.perf-badge {
+    position: absolute;
+    right: 14px;
+    bottom: 14px;
+    z-index: 60;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 11px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.72);
+    color: #6b6b7b;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    box-shadow: 0 2px 8px rgba(150, 150, 180, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: background 0.25s, color 0.25s;
+}
+
+/* 低配模式：粉色高亮 + 闪电标签 */
+.perf-badge:not(.classic) {
+    background: rgba(255, 183, 197, 0.92);
+    color: #7A2B3D;
+    border-color: rgba(255, 255, 255, 0.35);
+}
+
+.perf-badge-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.perf-badge-label i {
+    font-size: 10px;
+}
+
+.perf-badge.classic .perf-badge-label {
+    display: none;
+}
+
+.perf-badge .perf-badge-fps {
+    font-weight: 400;
+    opacity: 0.82;
+    font-variant-numeric: tabular-nums;
+    min-width: 52px;
+    text-align: right;
+}
+
+/* ==========================================================
+   🪶 空白区引导（先上传图片 → 再画固定区域 → 生成布料）
+   ========================================================== */
+.empty-guide {
+    position: absolute;
+    inset: 0;
+    z-index: 55;
+    pointer-events: none;
+}
+
+.guide-card {
+    pointer-events: auto;
+    background: rgba(255, 255, 255, 0.92);
+    border: 1.5px dashed rgba(255, 183, 197, 0.85);
+    border-radius: 18px;
+    box-shadow: 0 10px 34px rgba(180, 140, 160, 0.18);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    color: var(--text-main);
+    /* 只做淡入：卡片用 transform 居中，动画里再改 transform 会让它先跑偏再跳回来 */
+    animation: guideFade 0.22s ease-out;
+}
+
+@keyframes guideFade {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+/* 第一步：居中大卡片 */
+.guide-card-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(340px, calc(100% - 40px));
+    padding: 22px 20px 18px;
+    text-align: center;
+}
+
+.guide-icon {
+    width: 54px;
+    height: 54px;
+    margin: 0 auto 10px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, rgba(255, 210, 225, 0.9), rgba(255, 175, 198, 0.8));
+    color: #fff;
+    font-size: 22px;
+    box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.6);
+}
+
+.guide-icon.small {
+    width: 34px;
+    height: 34px;
+    margin: 0;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.guide-card h3 {
+    margin: 0 0 6px;
+    font-size: 15px;
+    color: var(--primary-dark);
+}
+
+.guide-card p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-muted, #8a8a99);
+}
+
+.guide-card .guide-sub {
+    margin-top: 10px;
+    font-size: 11px;
+    opacity: 0.75;
+}
+
+/* 第二步：顶部横条（不挡中间画布，只有按钮可点） */
+.guide-card-top {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    max-width: calc(100% - 28px);
+    padding: 10px 14px;
+}
+
+.guide-card-top .guide-text {
+    min-width: 0;
+    text-align: left;
+}
+
+.guide-card-top h3 {
+    font-size: 13px;
+    margin-bottom: 2px;
+}
+
+.guide-card-top p {
+    font-size: 11px;
+}
+
+.guide-gen-btn {
+    width: auto;
+    padding: 8px 12px;
+    font-size: 12px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+@media (max-width: 520px) {
+    .guide-card-top {
+        top: 10px;
+        gap: 8px;
+        padding: 8px 10px;
+    }
+    .guide-card-top p {
+        display: none;  /* 窄屏只留标题 + 按钮，避免挤爆 */
+    }
+    .guide-card-center {
+        padding: 16px 14px 14px;
+    }
+}

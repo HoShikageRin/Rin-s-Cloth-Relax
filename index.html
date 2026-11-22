@@ -32,6 +32,36 @@
 
     <button id="backToEditBtn" class="float-back-btn" style="display:none;" data-i18n="back_to_edit">⟵ 返回编辑</button>
 
+    <!-- 🪶 性能角标：FPS 始终显示；开启低配模式时额外亮出"低配模式"标签 -->
+    <div id="lowSpecBadge" class="perf-badge classic">
+      <span id="perfModeLabel" class="perf-badge-label"><i class="fa-solid fa-bolt"></i> <span data-i18n="low_spec_badge">低配模式</span></span>
+      <span id="lowSpecFps" class="perf-badge-fps">-- FPS</span>
+    </div>
+
+    <!-- 🪶 空白区引导：没有图片时引导上传；有图片时引导"画固定区域 → 生成布料" -->
+    <div id="emptyGuide" class="empty-guide" style="display:none;">
+      <div class="guide-card guide-card-center" id="guideStepUpload">
+        <div class="guide-icon"><i class="fa-regular fa-image"></i></div>
+        <h3 data-i18n="guide_step1_title">第一步：先选一张图片</h3>
+        <p data-i18n="guide_step1_desc">上传后会把它变成一块可拖拽、可切割的布料</p>
+        <button id="guideUploadBtn" class="btn-primary" style="margin-top: 6px;">
+          <i class="fa-solid fa-cloud-arrow-up"></i> <span data-i18n="guide_upload_btn">选择图片</span>
+        </button>
+        <p class="guide-sub" data-i18n="guide_drop_hint">也可以把图片直接拖到这里</p>
+      </div>
+
+      <div class="guide-card guide-card-top" id="guideStepPin" style="display:none;">
+        <div class="guide-icon small"><i class="fa-solid fa-pen"></i></div>
+        <div class="guide-text">
+          <h3 data-i18n="guide_step2_title">第二步：用红色画笔圈出要固定的地方</h3>
+          <p data-i18n="guide_step2_desc">红线处会被钉住不动（例如衣服的肩线）；不画的话默认只固定上边缘</p>
+        </div>
+        <button id="guideGenBtn" class="btn-normal guide-gen-btn">
+          <i class="fa-solid fa-wand-magic-sparkles"></i> <span data-i18n="guide_gen_btn">生成布料</span>
+        </button>
+      </div>
+    </div>
+
     <div class="canvas-info">
       <div class="credits" data-i18n="canvas_credits">开源及字体致谢：Three.js | 包图小白体 | 极影毁片和圆</div>
       <div class="disclaimer" data-i18n="sign_text">
@@ -82,17 +112,75 @@
           <input type="file" id="fileInput" accept="image/*">
           <i class="fa-solid fa-cloud-arrow-up"></i> <span data-i18n="upload_btn">选择或拖入图片</span>
         </label>
+
+
+        <!-- 🪶 低配模式开关（放在最常用的"基础操作"里，老电脑一进来就能开） -->
+        <div class="toggle-group lowspec-toggle" style="margin-top: 12px; margin-bottom: 8px; padding: 10px 12px;">
+          <div class="toggle-item">
+            <span class="toggle-label" data-tip="low_spec_hint"><i class="fa-solid fa-bolt" style="color:#E39AAE; margin-right:6px;"></i><span data-i18n="low_spec_enable">低配模式 (省电/流畅)</span></span>
+            <label class="toggle-switch"><input type="checkbox" id="toggleLowSpec"><span class="slider"></span></label>
+          </div>
+        </div>
+
+
+
         <div class="help-text">
           <div><i class="fa-solid fa-circle" style="color:#f3a3a3"></i> <span data-i18n="help_pin">画笔：固定布料</span></div>
           <div><i class="fa-solid fa-computer-mouse"></i> <span data-i18n="help_drag">拖拽/刀割：生成后交互</span></div>
         </div>
-        
+
         <div class="btn-row" style="margin-top: 15px;">
           <button id="btnPinStroke" class="btn-pinstroke btn-active"><i class="fa-solid fa-pen"></i> <span data-i18n="btn_pinstroke">画线</span></button>
           <button id="btnDecor" class="btn-normal"><i class="fa-solid fa-star"></i> <span data-i18n="btn_decor">放装饰</span></button>
           <button id="btnEraser" class="btn-eraser"><i class="fa-solid fa-eraser"></i> <span data-i18n="btn_eraser">橡皮擦</span></button>
         </div>
 
+
+        <!-- 🧷 快速固定：一键铺好固定点（可折叠，生成布料时生效） -->
+        <details class="quick-pin-block">
+          <summary class="quick-pin-head">
+            <i class="fa-solid fa-thumbtack"></i>
+            <span data-i18n="quick_pin_title">快速固定</span>
+            <span class="quick-pin-tip" data-i18n="quick_pin_tip">（换固定方式会重新生成布料）</span>
+          </summary>
+          <div class="quick-pin-body">
+          <div class="quick-pin-grid">
+            <button class="quick-pin-btn" data-quickpin="top" data-i18n="quick_pin_top">上边整条</button>
+            <button class="quick-pin-btn" data-quickpin="top2" data-i18n="quick_pin_top2">上边 2 点</button>
+            <button class="quick-pin-btn" data-quickpin="top3" data-i18n="quick_pin_top3">上边 3 点</button>
+            <button class="quick-pin-btn" data-quickpin="top5" data-i18n="quick_pin_top5">上边 5 点</button>
+            <button class="quick-pin-btn" data-quickpin="corners" data-i18n="quick_pin_corners">四角</button>
+            <button class="quick-pin-btn" data-quickpin="frame" data-i18n="quick_pin_frame">四周全框</button>
+            <button class="quick-pin-btn" data-quickpin="sides" data-i18n="quick_pin_sides">左右两点</button>
+            <button class="quick-pin-btn" data-quickpin="clear" data-i18n="quick_pin_clear">清除固定</button>
+          </div>
+          <div class="toggle-group" style="margin-top: 10px; padding: 8px 10px;">
+            <div class="toggle-item">
+              <span class="toggle-label" data-tip="quick_pin_hint"><i class="fa-solid fa-up-down-left-right" style="margin-right:6px;color:#E39AAE;"></i><span data-i18n="quick_pin_drag">解算时可拖动固定点</span></span>
+              <label class="toggle-switch"><input type="checkbox" id="togglePinDrag"><span class="slider"></span></label>
+            </div>
+          </div>
+
+          <p class="quick-pin-keys" data-i18n="quick_pin_keys">快捷键：键盘 1~8 依次套用 上边整条/2点/3点/5点/四角/全框/左右两点/恢复默认</p>
+          </div>
+        </details>
+
+
+        <div class="ctrl">
+          <label for="pinRadius"><span data-i18n="pin_radius">红线粗细</span></label>
+          <span id="pinRadiusValue">0.040</span>
+          <input id="pinRadius" type="range" min="0.01" max="0.12" step="0.005" value="0.04">
+        </div>
+        <div class="btn-row">
+
+          <button id="undoBtn" class="btn-normal" data-i18n="undo">撤销</button>
+          <button id="redoBtn" class="btn-normal" data-i18n="redo">重做</button>
+        </div>
+
+        <button id="genBtn" class="btn-primary" style="margin-top:10px;"><i class="fa-solid fa-wand-magic-sparkles"></i> <span data-i18n="btn_gen">生成布料</span></button>
+        <button id="pauseBtn" class="btn-normal"><i class="fa-solid fa-pause"></i> <span data-i18n="btn_pause">暂停解算</span></button>
+
+        <!-- 以下是装饰相关，放在生成按钮之后，按需展开 -->
         <!-- ✅ 自定义装饰上传与管理 -->
         <div class="ctrl" style="margin-bottom: 10px; display: block;">
           <label class="file-upload-btn" style="background: #eff6ff; color: var(--text-main); border: 1px solid var(--border); box-shadow: none; margin-bottom: 10px;">
@@ -109,6 +197,7 @@
             </button>
           </div>
         </div>
+
 
         <div id="decorEditPanel" style="display:none; background: rgba(255,255,255,0.3); padding: 12px; border-radius: 12px; margin-bottom: 14px; border: 1px dashed rgba(255,183,197,0.6);">
           
@@ -215,6 +304,7 @@
           </div>
         </div>
 
+
         <div class="ctrl" id="eraserModeCtrl" style="display:none;">
           <label for="eraserModeSelect" data-i18n="eraser_mode">橡皮擦模式</label>
           <select id="eraserModeSelect">
@@ -222,17 +312,6 @@
             <option value="partial" data-i18n="eraser_partial">局部擦除</option>
           </select>
         </div>
-        <div class="ctrl">
-          <label for="pinRadius"><span data-i18n="pin_radius">红线粗细</span></label>
-          <span id="pinRadiusValue">0.040</span>
-          <input id="pinRadius" type="range" min="0.01" max="0.12" step="0.005" value="0.04">
-        </div>
-        <div class="btn-row">
-          <button id="undoBtn" class="btn-normal" data-i18n="undo">撤销</button>
-          <button id="redoBtn" class="btn-normal" data-i18n="redo">重做</button>
-        </div>
-        <button id="genBtn" class="btn-primary" style="margin-top:10px;"><i class="fa-solid fa-wand-magic-sparkles"></i> <span data-i18n="btn_gen">生成布料</span></button>
-        <button id="pauseBtn" class="btn-normal"><i class="fa-solid fa-pause"></i> <span data-i18n="btn_pause">暂停解算</span></button>
       </div>
     </details>
 
@@ -243,24 +322,7 @@
         <div class="ctrl">
           <label for="materialPreset" data-i18n="mat_preset">材质预设</label>
           <select id="materialPreset">
-            <option value="custom" data-i18n="mat_preset_custom">自定义</option>
-            <option value="tie_dye" data-i18n="mat_preset_tie_dye">扎染 (柔光)</option>
-            <option value="batik" data-i18n="mat_preset_batik">蜡染 (哑光)</option>
-            <option value="washed_cotton" data-i18n="mat_preset_washed_cotton">水洗棉 (柔和)</option>
-            <option value="polyester" data-i18n="mat_preset_polyester">涤纶 (微光泽)</option>
-            <option value="tr_blend" data-i18n="mat_preset_tr_blend">TR面料 (哑光)</option>
-            <option value="worsted_wool" data-i18n="mat_preset_worsted_wool">精纺毛呢 (吸光)</option>
-            <option value="default" data-i18n="mat_preset_default">默认色彩</option>
-            <option value="cotton" data-i18n="mat_preset_cotton">柔和棉布</option>
-            <option value="silk" data-i18n="mat_preset_silk">反光丝绸</option>
-            <option value="metal" data-i18n="mat_preset_metal">拉丝金属</option>
-            <option value="leather" data-i18n="mat_preset_leather">粗糙皮革</option>
-            <option value="holographic" data-i18n="mat_preset_holographic">全息镭射</option>
-            <option value="gauze" data-i18n="mat_preset_gauze">透明纱网</option>
-            <option value="chiffon" data-i18n="mat_preset_chiffon">轻盈雪纺</option>
-            <option value="glass" data-i18n="mat_preset_glass">玻璃质感</option>
-            <option value="jelly" data-i18n="mat_preset_jelly">果冻质感</option>
-            <option value="film" data-i18n="mat_preset_film">透明保鲜膜</option>
+            <!-- 材质预设：选项由 script.js 按数据表生成（分组 + 多语言） -->
           </select>
         </div>
         <div class="ctrl">
@@ -329,14 +391,7 @@
         <div class="ctrl">
           <label for="textureFilterSelect" data-i18n="tex_filter">滤镜预设</label>
           <select id="textureFilterSelect">
-            <option value="none" data-i18n="filter_none">原始 (无滤镜)</option>
-            <option value="tie_dye" data-i18n="filter_tie_dye">扎染晕染</option>
-            <option value="batik" data-i18n="filter_batik">蜡染冰裂</option>
-            <option value="silk" data-i18n="filter_silk">丝绸流光</option>
-            <option value="vintage" data-i18n="filter_vintage">复古做旧</option>
-            <option value="denim" data-i18n="filter_denim">牛仔水洗</option>
-            <option value="ink" data-i18n="filter_ink">水墨斑驳</option>
-            <option value="holographic" data-i18n="filter_holographic">镭射反光</option>
+            <!-- 纹理滤镜：选项由 script.js 按数据表生成（分组 + 多语言） -->
           </select>
         </div>
         <div class="ctrl" id="filterStrengthCtrl" style="display:none;">
@@ -349,42 +404,7 @@
         <div class="ctrl">
           <label for="pbrTextureSelect" data-i18n="pbr_tex">程序化纹理</label>
           <select id="pbrTextureSelect">
-            <option value="none" data-i18n="pbr_none">无</option>
-            <option value="batik" data-i18n="pbr_batik">蜡染 (冰裂纹)</option>
-            <option value="washed_cotton" data-i18n="pbr_washed_cotton">水洗棉 (微绒感)</option>
-            <option value="polyester" data-i18n="pbr_polyester">涤纶 (平滑)</option>
-            <option value="tr_blend" data-i18n="pbr_tr_blend">TR面料 (细斜纹)</option>
-            <option value="worsted_wool" data-i18n="pbr_worsted_wool">精纺毛呢 (紧密斜纹)</option>
-            <option value="stripe" data-i18n="pbr_stripe">横向条纹 (非镂空)</option>
-            <option value="mesh" data-i18n="pbr_mesh">粗网格纱 (镂空)</option>
-            <option value="mesh_solid" data-i18n="pbr_mesh_solid">粗网格纱 (非镂空)</option>
-            <option value="weave" data-i18n="pbr_weave">经典平纹</option>
-            <option value="twill" data-i18n="pbr_twill">斜纹牛仔</option>
-            <option value="knit" data-i18n="pbr_knit">针织毛衣</option>
-            <option value="hex" data-i18n="pbr_hex">六角网孔 (镂空)</option>
-            <option value="hex_solid" data-i18n="pbr_hex_solid">六角网孔 (非镂空)</option>
-            <option value="basket" data-i18n="pbr_basket">编织纹</option>
-            <option value="herringbone" data-i18n="pbr_herringbone">人字纹 (编织)</option>
-            <option value="noise" data-i18n="pbr_noise">纯磨砂/噪波</option>
-            <option value="leather" data-i18n="pbr_leather">细腻皮革</option>
-            <option value="stone" data-i18n="pbr_stone">颗粒砂石</option>
-            <option value="wrinkle" data-i18n="pbr_wrinkle">压花皱纹</option>
-            <option value="diamond" data-i18n="pbr_diamond">菱形格纹</option>
-            <option value="puffyQuilt" data-i18n="pbr_puffy_quilt">蓬松棉被 (纽扣)</option>
-            <option value="vinyl" data-i18n="pbr_vinyl">喷绘布</option>
-            <option value="flax" data-i18n="pbr_flax">亚麻</option>
-            <option value="real_leather" data-i18n="pbr_real_leather">真皮</option>
-            <option value="fluff" data-i18n="pbr_fluff">绒毛</option>
-            <option value="carbon" data-i18n="pbr_carbon">碳纤维</option>
-            <option value="square_weave" data-i18n="pbr_square_weave">方形交错编织纹</option>
-            <option value="corduroy" data-i18n="pbr_corduroy">灯芯绒</option>
-            <option value="cashmere" data-i18n="pbr_cashmere">羊绒</option>
-            <option value="brushed" data-i18n="pbr_noise_brushed">金属拉丝</option>
-            <option value="tie_dye" data-i18n="pbr_tie_dye">扎染晕染</option>
-            <option value="gauze" data-i18n="pbr_gauze">医用纱布</option>
-            <option value="felt" data-i18n="pbr_felt">毛毡</option>
-            <option value="plastic_wrap" data-i18n="pbr_plastic_wrap">保鲜薄膜</option>
-            <option value="rice_paper" data-i18n="pbr_rice_paper">宣纸/和纸</option>
+            <!-- PBR 纹理：选项由 script.js 按数据表生成（分组 + 多语言） -->
           </select>
         </div>
         <label class="file-upload-btn" style="margin-bottom: 10px; background: #eff6ff; color: var(--text-main); border: 1px solid var(--border); box-shadow: none;">
@@ -426,17 +446,7 @@
         <div class="ctrl" id="pbrNoiseCtrl" style="display:none;">
           <label for="pbrNoiseStyle" data-i18n="pbr_noise_style">噪波风格</label>
           <select id="pbrNoiseStyle">
-            <option value="sand" data-i18n="pbr_noise_sand">细沙 (高频颗粒)</option>
-            <option value="fiber" data-i18n="pbr_noise_fiber">纤维 (拉丝质感)</option>
-            <option value="cloud" data-i18n="pbr_noise_cloud">云层 (柔和起伏)</option>
-            <option value="crack" data-i18n="pbr_noise_crack">粗糙裂纹</option>
-            <option value="ripple" data-i18n="pbr_noise_ripple">水波涟漪</option>
-            <option value="cellular" data-i18n="pbr_noise_cellular">细胞/鳞片</option>
-            <option value="wood" data-i18n="pbr_noise_wood">木纹</option>
-            <option value="marble" data-i18n="pbr_noise_marble">大理石</option>
-            <option value="rusty" data-i18n="pbr_noise_rusty">破旧斑驳</option>
-            <option value="weaveNode" data-i18n="pbr_noise_weave_node">编织节点</option>
-            <option value="quilted" data-i18n="pbr_noise_quilted">空调被/绗缝</option>
+            <!-- 噪波风格：选项由 script.js 按数据表生成（多语言） -->
           </select>
         </div>
         <div class="ctrl" id="pbrNoiseIntensityCtrl" style="display:none;">
@@ -460,30 +470,7 @@
         <div class="ctrl">
           <label for="physicsPreset" data-i18n="preset_title">物理预设</label>
           <select id="physicsPreset">
-            <option value="custom" data-i18n="preset_custom">自定义</option>
-            <option value="washed_cotton" data-i18n="preset_washed_cotton">水洗棉</option>
-            <option value="polyester" data-i18n="preset_polyester">涤纶</option>
-            <option value="tr_blend" data-i18n="preset_tr_blend">TR面料 (混纺)</option>
-            <option value="worsted_wool" data-i18n="preset_worsted_wool">精纺毛呢</option>
-            <option value="cotton" data-i18n="preset_cotton">棉</option>
-            <option value="denim" data-i18n="preset_denim">牛仔</option>
-            <option value="leather" data-i18n="preset_leather">皮革</option>
-            <option value="rubber" data-i18n="preset_rubber">橡胶</option>
-            <option value="silk" data-i18n="preset_silk">丝绸</option>
-            <option value="silicone" data-i18n="preset_silicone">硅胶布</option>
-            <option value="metal" data-i18n="preset_metal">金属丝网</option>
-            <option value="paper" data-i18n="preset_paper">纸张</option>
-            <option value="neoprene" data-i18n="preset_neoprene">潜水料</option>
-            <option value="plastic" data-i18n="preset_plastic">塑料薄膜</option>
-            <option value="linen" data-i18n="preset_linen">亚麻</option>
-            <option value="chiffon" data-i18n="preset_chiffon">雪纺</option>
-            <option value="canvas" data-i18n="preset_canvas">帆布</option>
-            <option value="wool" data-i18n="preset_wool">羊毛</option>
-            <option value="velvet" data-i18n="preset_velvet">天鹅绒</option>
-            <option value="metalsheet" data-i18n="preset_metal_sheet">铁皮</option>
-            <option value="jelly" data-i18n="preset_jelly">果冻</option>
-            <option value="spidersilk" data-i18n="preset_spider_silk">蛛丝</option>
-            <option value="clingfilm" data-i18n="preset_cling_film">保鲜膜</option>
+            <!-- 物理预设：选项由 script.js 按数据表生成（分组 + 多语言） -->
           </select>
         </div>
         <div class="ctrl">
@@ -522,10 +509,7 @@
         <div class="ctrl">
           <label for="collisionPreset" data-i18n="collision_preset">碰撞预设</label>
           <select id="collisionPreset">
-            <option value="custom" data-i18n="collision_custom">自定义</option>
-            <option value="perf" data-i18n="collision_perf">性能优先</option>
-            <option value="balance" data-i18n="collision_balance">平衡模式</option>
-            <option value="quality" data-i18n="collision_quality">质量优先</option>
+            <!-- 碰撞预设：选项由 script.js 按数据表生成（分组 + 多语言） -->
           </select>
         </div>
         <div class="ctrl">
@@ -554,11 +538,7 @@
         <div class="ctrl">
           <label for="windPreset" data-i18n="wind_preset">风力预设</label>
           <select id="windPreset">
-            <option value="custom" data-i18n="wind_custom">自定义</option>
-            <option value="breeze" data-i18n="wind_breeze">微风</option>
-            <option value="gentle" data-i18n="wind_gentle">和风</option>
-            <option value="strong" data-i18n="wind_strong">强风</option>
-            <option value="gale" data-i18n="wind_gale">狂风</option>
+            <!-- 风力预设：选项由 script.js 按数据表生成（分组 + 多语言） -->
           </select>
         </div>
         <div class="ctrl">
@@ -894,17 +874,13 @@
           <div class="ctrl" style="margin-bottom: 10px;">
             <label for="tearPresetSelect" data-i18n="tear_preset">撕扯预设</label>
             <select id="tearPresetSelect">
-              <option value="custom" data-i18n="tear_preset_custom">自定义</option>
-              <option value="soft" data-i18n="tear_preset_soft">纸巾般易碎</option>
-              <option value="normal" data-i18n="tear_preset_normal">标准布料</option>
-              <option value="tough" data-i18n="tear_preset_tough">牢固耐扯</option>
-              <option value="metal" data-i18n="tear_preset_metal">坚不可摧</option>
-            </select>
+            <!-- 撕扯预设：选项由 script.js 按数据表生成（分组 + 多语言） -->
+          </select>
           </div>
           <div class="ctrl" style="margin-bottom: 0;">
             <label for="tearThreshold" data-i18n="tear_threshold">撕扯阈值</label>
             <span id="tearThresholdValue">1.20</span>
-            <input id="tearThreshold" type="range" min="1.0" max="3.5" step="0.05" value="1.2">
+            <input id="tearThreshold" type="range" min="1.0" max="3.5" step="0.01" value="1.2">
           </div>
         </div>
         <div class="ctrl" id="maxDragDistanceCtrl" style="margin-bottom: 0;">
@@ -1034,7 +1010,7 @@
         <div class="ctrl">
           <label for="zoom" data-i18n="cam_zoom">缩放</label>
           <span id="zoomValue">1.00</span>
-          <input id="zoom" type="range" min="0.1" max="3" step="0.01" value="1">
+          <input id="zoom" type="range" min="0" max="3" step="0.01" value="1">
         </div>
         <div class="ctrl">
           <label for="camX" data-i18n="cam_left">左右</label>
@@ -1047,6 +1023,19 @@
           <input id="camY" type="range" min="-1.5" max="1.5" step="0.01" value="0">
         </div>
         <button id="resetCamBtn" class="btn-normal" data-i18n="reset_cam">重置相机</button>
+
+        <!-- 🎥 3D 镜头 -->
+        <div class="toggle-group" style="margin-top: 14px; padding: 8px 10px;">
+          <div class="toggle-item">
+            <span class="toggle-label"><i class="fa-solid fa-video" style="margin-right:6px;"></i><span data-i18n="cam3d_enable">3D 镜头</span></span>
+            <label class="toggle-switch"><input type="checkbox" id="toggleCam3D"><span class="slider"></span></label>
+          </div>
+        </div>
+        <p class="help-text" data-i18n="cam3d_hint">电脑：按住鼠标右键拖动即可转动镜头（Shift + 右键平移，滚轮推拉）。手机：打开开关后直接在画面上拖动即可转动。</p>
+        <div class="cam3d-bar">
+          <span class="cam3d-readout"><span data-i18n="cam3d_pitch">俯仰</span> <span id="cam3DPitchValue">0°</span> · <span data-i18n="cam3d_yaw">环绕</span> <span id="cam3DYawValue">0°</span> · <span data-i18n="cam3d_zoom">推拉</span> <span id="cam3DZoomValue">1.00</span></span>
+          <button id="cam3DReset" class="cam3d-btn cam3d-reset" title="复位"><i class="fa-solid fa-rotate-left"></i> <span data-i18n="cam3d_reset">复位</span></button>
+        </div>
       </div>
     </details>
 
