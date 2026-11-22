@@ -1194,6 +1194,54 @@ input[type="color"]::-moz-color-swatch {
     text-overflow: ellipsis;
 }
 
+
+/* ==========================================================
+   🗂 二级抽屉（每个设置分组内部的小分类）
+   ========================================================== */
+.sub-group {
+    margin: 8px 0 10px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.75);
+    overflow: hidden;
+}
+
+.sub-group-head {
+    list-style: none;
+    cursor: pointer;
+    padding: 8px 11px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--primary-dark);
+    user-select: none;
+    transition: background 0.18s;
+}
+
+.sub-group-head::-webkit-details-marker { display: none; }
+
+.sub-group-head::after {
+    content: "\f078";
+    font-family: "Font Awesome 6 Free";
+    font-weight: 900;
+    font-size: 9px;
+    margin-left: auto;
+    opacity: 0.55;
+    transition: transform 0.2s;
+}
+
+.sub-group[open] > .sub-group-head::after { transform: rotate(180deg); }
+.sub-group-head:hover { background: rgba(255, 226, 234, 0.55); }
+
+.sub-group-body {
+    padding: 4px 11px 8px;
+}
+
+.sub-group-body .ctrl:first-child { margin-top: 6px; }
+.sub-group-body .toggle-group { margin-top: 6px; }
+
 /* ==========================================================
    🧷 快速固定（折叠面板）
    ========================================================== */
