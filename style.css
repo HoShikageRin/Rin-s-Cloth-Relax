@@ -1417,6 +1417,26 @@ input[type="color"]::-moz-color-swatch {
     text-align: right;
 }
 
+/* 🩺 求解器状态：💤 = 已休眠；数字 = 本帧约束迭代遍数（语言无关，靠图标表达） */
+.perf-badge .perf-badge-solver {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-weight: 400;
+    opacity: 0.72;
+    font-variant-numeric: tabular-nums;
+    padding-left: 8px;
+    border-left: 1px solid rgba(120, 120, 140, 0.22);
+}
+
+.perf-badge .perf-badge-solver:empty {
+    display: none;
+}
+
+.perf-badge .perf-badge-solver i {
+    font-size: 10px;
+}
+
 /* ==========================================================
    🪶 空白区引导（先上传图片 → 再画固定区域 → 生成布料）
    ========================================================== */

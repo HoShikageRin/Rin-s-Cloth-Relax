@@ -36,6 +36,7 @@
     <div id="lowSpecBadge" class="perf-badge classic">
       <span id="perfModeLabel" class="perf-badge-label"><i class="fa-solid fa-bolt"></i> <span data-i18n="low_spec_badge">低配模式</span></span>
       <span id="lowSpecFps" class="perf-badge-fps">-- FPS</span>
+      <span id="perfSolver" class="perf-badge-solver"></span>
     </div>
 
     <!-- 🪶 空白区引导：没有图片时引导上传；有图片时引导"画固定区域 → 生成布料" -->
@@ -179,6 +180,7 @@
 
         <button id="genBtn" class="btn-primary" style="margin-top:10px;"><i class="fa-solid fa-wand-magic-sparkles"></i> <span data-i18n="btn_gen">生成布料</span></button>
         <button id="pauseBtn" class="btn-normal"><i class="fa-solid fa-pause"></i> <span data-i18n="btn_pause">暂停解算</span></button>
+        <button id="btnShake" class="btn-normal"><i class="fa-solid fa-shake"></i> <span data-i18n="btn_shake">抖一抖</span></button>
 
         <!-- 以下是装饰相关，放在生成按钮之后，按需展开 -->
         <!-- ✅ 自定义装饰上传与管理 -->
@@ -443,6 +445,20 @@
           </select>
         </div>
         <div class="ctrl">
+          <label for="collisionQuality" data-i18n="collision_quality">碰撞质量档位</label>
+          <select id="collisionQuality">
+            <option value="standard" data-i18n="collision_quality_standard">标准</option>
+            <option value="light" data-i18n="collision_quality_light">轻量 (更省算力)</option>
+          </select>
+        </div>
+        <div class="toggle-group" style="margin-bottom: 10px; padding: 8px 12px;">
+          <div class="toggle-item">
+            <span class="toggle-label" data-tip="auto_rescue_hint"><i class="fa-solid fa-wrench" style="margin-right:6px;color:#E39AAE;"></i><span data-i18n="auto_rescue">卡住时自动解缠</span></span>
+            <label class="toggle-switch"><input type="checkbox" id="toggleAutoRescue" checked><span class="slider"></span></label>
+          </div>
+        </div>
+        <button id="btnSelfCheck" class="btn-normal" style="margin-bottom: 12px;" data-i18n="selfcheck_btn">自检：有没有自交</button>
+        <div class="ctrl">
           <label for="collisionRadius" data-i18n="collision_radius">碰撞半径</label>
           <span id="collisionRadiusValue">0.95</span>
           <input id="collisionRadius" type="range" min="0.5" max="1.5" step="0.05" value="0.95">
@@ -593,6 +609,12 @@
           <label for="meshRes" data-i18n="mesh_res">网格分辨率</label>
           <span id="meshResValue">24</span>
           <input id="meshRes" type="range" min="14" max="128" step="2" value="24">
+        </div>
+        <div class="toggle-group" style="margin-top: 12px; margin-bottom: 0; padding: 8px 12px;">
+          <div class="toggle-item">
+            <span class="toggle-label" data-tip="sleep_guard_hint"><i class="fa-solid fa-bed" style="margin-right:6px;color:#E39AAE;"></i><span data-i18n="sleep_guard">休眠前检查残余形变</span></span>
+            <label class="toggle-switch"><input type="checkbox" id="toggleSleepGuard" checked><span class="slider"></span></label>
+          </div>
         </div>
           </div>
         </details>

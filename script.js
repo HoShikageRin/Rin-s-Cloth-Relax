@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // 🪶 低配模式物理求解器（独立文件：physics-lowspec.js）
-import { LowSpecSolver, LOW_SPEC } from './physics-lowspec.js';
+import { ClothSolver, LOW_SPEC, SOLVER_PROFILES } from './physics-lowspec.js';
 
 const selDecorColor = document.getElementById("selDecorColor");
 const previewCanvas = document.getElementById("previewCanvas");
@@ -33,6 +33,13 @@ let thicknessTexEnabled = false;
 
 let flatShadingEnabled = false;
 let clothOpacity = 1.0;
+// 🦔 自碰撞半径的硬上限（单位：静止网格间距）。网格只跳过「自己 ±1 格」的邻居，
+// 所以半径超过 ~2 格距时，平整布面上"隔一格"的正常邻居也会被当成重叠互相排斥，
+// 整块布就会鼓成刺猬并疯狂抽搐。这里钳死，滑杆/常量填多大都不会炸。
+const MAX_COLLISION_RADIUS_MUL = 1.4;
+// 🪞 背面压暗强度（0~0.5）：布料是单层双面材质，翻过来看到的是同一张图，
+// 视觉上分不清哪面朝你。用 gl_FrontFacing 把背面压暗一点就有"里外"了。
+let backShadeStrength = 0.14;
 
 let clothTransmission = 0.0;
 let clothClearcoat = 0.0;
@@ -632,20 +639,24 @@ const physicsExtraDefaults = {
 // ==============================================================
 const REST_POSE = {
     flag:         { x: 0,  y: 0,  z: 0 },
-    vinyl_banner: { x: -12, y: 0, z: -10 },
-    awning:       { x: -14, y: 0, z: -6 },
-    burlap:       { x: -6,  y: 0, z: 4 },
-    straw_mat:    { x: 0,  y: 0, z: 18 },
-    canvas:       { x: -4,  y: 0, z: 12 },
-    denim:        { x: -4,  y: 0, z: 10 },
-    tulle:        { x: -8,  y: 0, z: 0 },
-    organza:      { x: -6,  y: 0, z: 0 },
-    lace:         { x: -5,  y: 0, z: 0 },
-    chiffon:      { x: -4,  y: 0, z: 0 },
-    silk:         { x: -4,  y: 0, z: 0 },
-    satin:        { x: -3,  y: 0, z: 0 },
-    taffeta:      { x: -3,  y: 0, z: 0 },
-    velvet:       { x: 0,   y: 0, z: -4 }
+    // ⚠️ z 必须保持 0：绕 Z 轴旋转 = 在屏幕平面里整体转动，上边缘固定线会变斜，
+    //    看上去就是布料歪掉了（草编席 18° / 帆布 12° / 牛仔 10° / 喷绘布 -10° 正是
+    //    "部分预设生成出来是歪的"的直接来源）。x（前后倾）不会让上边缘变斜，
+    //    只保留一个很小的角度来体现面料的垂坠差别。
+    vinyl_banner: { x: -6, y: 0, z: 0 },
+    awning:       { x: -6, y: 0, z: 0 },
+    burlap:       { x: -3, y: 0, z: 0 },
+    straw_mat:    { x: 0,  y: 0, z: 0 },
+    canvas:       { x: -3, y: 0, z: 0 },
+    denim:        { x: -3, y: 0, z: 0 },
+    tulle:        { x: -4, y: 0, z: 0 },
+    organza:      { x: -3, y: 0, z: 0 },
+    lace:         { x: -3, y: 0, z: 0 },
+    chiffon:      { x: -3, y: 0, z: 0 },
+    silk:         { x: -2, y: 0, z: 0 },
+    satin:        { x: -2, y: 0, z: 0 },
+    taffeta:      { x: -2, y: 0, z: 0 },
+    velvet:       { x: 0,  y: 0, z: 0 }
 };
 
 const physicsPresets = {
@@ -1401,6 +1412,14 @@ const toggleTex = document.getElementById("toggleTex");
 const toggleLight = document.getElementById("toggleLight");
 const toggleShadow = document.getElementById("toggleShadow");
 const toggleCollision = document.getElementById("toggleCollision");
+// 🧷 自碰撞质量档位（标准 / 轻量）与「休眠前检查残余形变」开关
+const collisionQualitySelect = document.getElementById("collisionQuality");
+const toggleSleepGuard = document.getElementById("toggleSleepGuard");
+const toggleAutoRescue = document.getElementById("toggleAutoRescue");
+// 🫨 抖一抖：短促随机冲量，用来解开缠住/穿模的状态
+const btnShake = document.getElementById("btnShake");
+// 🩺 拓扑自检按钮
+const btnSelfCheck = document.getElementById("btnSelfCheck");
 const toggleOutline = document.getElementById("toggleOutline");
 const toggleGrid = document.getElementById("toggleGrid");
 
@@ -1483,6 +1502,39 @@ pauseBtn.onclick = () => {
         pauseBtn.classList.add("btn-warning");
     }
 };
+
+// 🫨 抖一抖：连续几帧给每个非固定质点一个随机速度（Verlet 里等价于改 oldX/Y/Z），
+// 制造一次"甩一甩"的冲击，帮已经把两层缠住的布料跳出局部极小。
+// 比手动拉扯省事，而且冲量是零均值的，不会破坏已有的褶皱走向。
+let shakeFramesLeft = 0;
+
+function shakeCloth() {
+    if (!cloth || !cloth.particles || !cloth.particles.length) return;
+    if (!isSimulating) pauseBtn.click();     // 暂停状态下先恢复解算，否则抖了也不动
+    cloth.wake();
+    shakeFramesLeft = 8;
+}
+
+function applyShakeImpulse() {
+    if (!cloth || !cloth.particles || !cloth.particles.length) { shakeFramesLeft = 0; return; }
+    const amp = (cloth.baseRestLength || 0.03) * 1.1;
+    const ps = cloth.particles;
+    for (let i = 0; i < ps.length; i++) {
+        const p = ps[i];
+        if (p.pinned) continue;
+        // 随机方向；z 分量给得更多（把叠在一起的两层"吹开"最有效）
+        const vx = (Math.random() - 0.5) * amp;
+        const vy = (Math.random() - 0.5) * amp * 0.7;
+        const vz = (Math.random() - 0.5) * amp * 1.6;
+        p.oldX = p.x - vx;
+        p.oldY = p.y - vy;
+        p.oldZ = p.z - vz;
+    }
+    shakeFramesLeft--;
+}
+
+if (btnShake) btnShake.onclick = shakeCloth;
+if (btnSelfCheck) btnSelfCheck.onclick = () => { if (typeof runSelfCheck === "function") runSelfCheck(); };
 
 const undoBtn = document.getElementById("undoBtn");
 const redoBtn = document.getElementById("redoBtn");
@@ -2007,7 +2059,8 @@ function fillPbrTextureOptions() {
         pbrTextureSelect.appendChild(og);
     }
     if (prev) pbrTextureSelect.value = prev;
-}// 🌫 PBR 叠加噪波的风格表（与 createNoiseNormalMap 里的分支一一对应）
+}
+// 🌫 PBR 叠加噪波的风格表（与 createNoiseNormalMap 里的分支一一对应）
 const PBR_NOISE_STYLES = [
     { key: "sand", textKey: "pbr_noise_sand" },
     { key: "fiber", textKey: "pbr_noise_fiber" },
@@ -5410,6 +5463,47 @@ function makeFishnetAlphaMap() {
     return tex;
 }
 
+/**
+ * 🪞 正反面区分：给布料材质注入"背面压暗"。
+ * 布料只有一个面片 + DoubleSide，从背面看是同一张图（镜像），3D 视角里翻卷时
+ * 很容易分不清哪一面朝自己。这里用 gl_FrontFacing 在片元阶段把背面压暗并轻微去饱和，
+ * 不需要第二套材质、也不影响正面颜色。
+ * 注意要挂到已有 onBeforeCompile 之上（链式），不能覆盖它（那会丢掉法线/水珠/镭射注入）。
+ */
+function installBackShade(mat) {
+    if (!mat || mat.userData._backShade) return;
+    mat.userData._backShade = true;
+    const prev = mat.onBeforeCompile;
+    const patch = (shader) => {
+        shader.uniforms.uBackShade = { value: backShadeStrength };
+        shader.fragmentShader = shader.fragmentShader.replace(
+            '#include <common>',
+            '#include <common>\nuniform float uBackShade;\n'
+        );
+        shader.fragmentShader = shader.fragmentShader.replace(
+            '#include <dithering_fragment>',
+            `#include <dithering_fragment>
+            if (!gl_FrontFacing && uBackShade > 0.001) {
+                float backGray = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
+                vec3 backDesat = mix(vec3(backGray), gl_FragColor.rgb, 0.82);
+                gl_FragColor.rgb = backDesat * (1.0 - uBackShade);
+            }
+            `
+        );
+    };
+    mat.onBeforeCompile = (shader, renderer) => {
+        if (prev) prev(shader, renderer);
+        patch(shader);
+    };
+    // 让 three 把"改过 shader"这件事纳入程序缓存键（否则可能复用旧程序）
+    const prevKey = mat.customProgramCacheKey;
+    mat.customProgramCacheKey = function () {
+        const base = prevKey ? prevKey.call(this) : "";
+        return base + "|backshade" + backShadeStrength;
+    };
+    mat.needsUpdate = true;
+}
+
 function switchClothMaterial() {
     if (!clothMesh) return;
     clothMesh.material.dispose();
@@ -5694,6 +5788,7 @@ function switchClothMaterial() {
 
     mat.needsUpdate = true;
     clothMesh.material = mat;
+    installBackShade(mat);          // 🪞 正反面区分（对所有材质类型都生效）
     clothMesh.castShadow = shadowEnabled;
     clothMesh.receiveShadow = shadowEnabled;
     if (thicknessEnabled) updateThicknessMesh();
@@ -6017,8 +6112,10 @@ function bindCamera3DControls() {
         const dx = e.clientX - lastX, dy = e.clientY - lastY;
         lastX = e.clientX; lastY = e.clientY;
         if (wantPan) {
-            cam3DPanX += dx * 0.01;
-            cam3DPanY -= dy * 0.01;
+            // 平移按缩放比例换算，保证"鼠标拖多少、画面跟多少"，并把平移限制在合理范围
+            const k = 0.01 / Math.max(0.35, cam3DZoom);
+            cam3DPanX = Math.max(-2.5, Math.min(2.5, cam3DPanX + dx * k));
+            cam3DPanY = Math.max(-2.5, Math.min(2.5, cam3DPanY - dy * k));
         } else {
             cam3DYaw = Math.max(-180, Math.min(180, cam3DYaw - dx * 0.35));
             cam3DPitch = Math.max(-80, Math.min(80, cam3DPitch - dy * 0.28));
@@ -6200,6 +6297,7 @@ function injectTooltips() {
         "collisionRadius":      "collision_radius_desc",
         "collisionForce":       "collision_force_desc",
         "collisionIters":       "collision_iters_desc",
+        "collisionQuality":     "collision_quality_desc",
 
         // ---- 风力 ----
         "wind":                 "wind_strength_desc",
@@ -6864,6 +6962,30 @@ function endDrag() {
     draggingPins = false;
 }
 
+/**
+ * 🧯 强制松手：手势被系统打断时（鼠标在窗口外松开、pointercancel、切标签页/失焦）
+ * 必须把所有"抓取中"的质点解锁。
+ *
+ * 为什么非要有这个：求解器把被抓取的质点当成完全固定（invMass = 0），
+ * 只要 draggedParticles / multiTouchMap 里残留了索引，那几块布就永远不参与解算 ——
+ * 表现就是"某一块布像被隐形钉子钉住，再拽一下才松开"。
+ */
+function forceReleaseAllDrags() {
+    if (draggedParticles.length > 0) endDrag();
+    if (multiTouchMap.size > 0) {
+        for (const id of Array.from(multiTouchMap.keys())) endMultiDrag(id);
+        multiTouchMap.clear();
+    }
+    draggedParticles = [];
+    draggingPins = false;
+    draggingDecorIndex = -1;
+    isCutting = false;
+    isMovingCloth = false;
+    isCanvasTouch = false;
+    cam3DTouchLast = null;
+    if (cloth) cloth.wake();
+}
+
 function tearAtParticles() {
     if (!cloth || dragMode !== "tear") return;
     const maxS = parseFloat(tearThresholdSlider.value);
@@ -7456,6 +7578,11 @@ function onPointerDown(e) {
 }
 
 function onPointerMove(e) {
+    // 🧯 鼠标在窗口外松开后再移回来：mouseup 不会到达窗口，这里用 buttons === 0 兜底松手
+    if (!editMode && draggedParticles.length > 0 && e && e.buttons === 0) {
+        forceReleaseAllDrags();
+        return;
+    }
     if (!editMode) {
         // 👇 新增：处理整体移动
         if (isMovingCloth) { 
@@ -7496,10 +7623,16 @@ function onPointerUp() {
         // 👇 新增：结束整体移动
         if (isMovingCloth) { 
             endClothMove(); 
+            if (draggedParticles.length > 0) endDrag();
             return; 
         }
 
-        if (isCutting) { isCutting = false; saveHistory(); return; }
+        if (isCutting) {
+            isCutting = false;
+            saveHistory();
+            if (draggedParticles.length > 0) endDrag();   // 中途切模式时也别把抓取状态留下
+            return;
+        }
         if (draggedParticles.length > 0) endDrag();
         return;
     }
@@ -7518,10 +7651,22 @@ function onPointerUp() {
 canvasHost.addEventListener("mousedown", e => { if (e.target.closest('.float-back-btn')) return; onPointerDown(e); });
 window.addEventListener("mousemove", e => { if (e.target.closest('.float-back-btn')) return; onPointerMove(e); });
 window.addEventListener("mouseup", e => { if (e.target.closest('.float-back-btn')) return; onPointerUp(); });
+
+// 🧯 手势被系统打断时的兜底松手（否则抓取中的质点会永远锁死）
+window.addEventListener("pointercancel", forceReleaseAllDrags);
+window.addEventListener("blur", forceReleaseAllDrags);
+document.addEventListener("visibilitychange", () => { if (document.hidden) forceReleaseAllDrags(); });
 canvasHost.addEventListener("contextmenu", e => e.preventDefault());
 
 canvasHost.addEventListener("wheel", e => {
     e.preventDefault();
+    // 🎥 3D 镜头开启时，滚轮直接推拉镜头（比再去拖 2D 缩放滑杆顺手）
+    if (cam3DEnabled && !editMode) {
+        const dir = e.deltaY > 0 ? -1 : 1;
+        cam3DZoom = Math.max(0.35, Math.min(2.5, cam3DZoom * (1 + dir * 0.08)));
+        applyCamera3D();
+        return;
+    }
     // 缩放可以一路收到 0；越接近 0 步长越小，方便微调
     const dir = e.deltaY > 0 ? 1 : -1;
     const stepSize = Math.max(0.01, zoom * 0.12);
@@ -7904,14 +8049,16 @@ let lowSpecMode = false;
 const toggleLowSpecEl = document.getElementById("toggleLowSpec");
 const lowSpecBadgeEl = document.getElementById("lowSpecBadge");
 const lowSpecFpsEl = document.getElementById("lowSpecFps");
+const perfSolverEl = document.getElementById("perfSolver");
 const perfModeLabelEl = document.getElementById("perfModeLabel");
 const physicsHzEl = document.getElementById("physicsHz");
 const constraintIterationsEl = document.getElementById("constraintIterations");
 
 const lowSpecLockBuf = [];
-let lowSpecCollisionTick = 0;   // 低配自碰撞隔帧计数
 
-const lowSpecHost = {
+// 🧵 求解器宿主适配层：经典模式与低配模式共用
+// （以前叫 lowSpecHost，只有低配走它；现在两种模式都走统一求解器）
+const clothSolverHost = {
     // 每帧读一次 UI/全局参数，之后热循环里不再碰 DOM
     getParams(out) {
         out.simMult = parseFloat(simMultSlider.value) || 1;
@@ -7946,6 +8093,10 @@ const lowSpecHost = {
         out.groundY = groundY;
         out.groundFriction = groundFriction;
         out.collision = collisionEnabled;
+        out.collisionIters = parseInt(collisionItersSlider.value) || 2;
+        out.collisionLight = !!(collisionQualitySelect && collisionQualitySelect.value === "light");
+        out.sleepGuard = !!(toggleSleepGuard && toggleSleepGuard.checked);
+        out.autoRescue = !!(toggleAutoRescue && toggleAutoRescue.checked);
         return out;
     },
     // 拖拽中的粒子下标（复用数组，不产生垃圾）
@@ -7963,18 +8114,30 @@ const lowSpecHost = {
     hasLocks() { return draggedParticles.length > 0 || multiTouchMap.size > 0; },
     decorVersion() { return decorations.length; },
     getDecorations() { return decorations; },
-    // 自碰撞交给经典实现跑（质量可靠），但低配下限制最多 2 遍
-    solveCollision(c, lockSet) {
-        // 🪶 低配：隔帧跑一次、每次 1 遍。碰撞是纯额外开销，
-        //    隔帧后视觉上几乎察觉不到，但赛扬这类 CPU 能省掉一半。
-        lowSpecCollisionTick = (lowSpecCollisionTick + 1) & 1;
-        if (lowSpecCollisionTick !== 0) return;
-        c.buildCollisionGrid();
-        c.solveCollision(lockSet);
+    // 自碰撞交给宿主跑（网格构建与排斥计算都留在这边）：
+    // 空间网格每帧只建一次，响应遍数由求解器按「碰撞迭代数」滑块决定
+    // （经典档每帧 / 低配档隔帧由 profile 决定）。
+    // 「碰撞质量档位 = 轻量」时：半径 ×0.6、只跑 1 遍响应，隔帧由求解器负责
+    // 「rescue = true」= 卡住自动解缠窗口：半径 ×0.35、只跑 1 遍（平时完全不开销）
+    solveCollision(c, lockSet, passes, rescueRadius, pushMul) {
+        const light = collisionQualitySelect && collisionQualitySelect.value === "light";
+        const rescue = typeof rescueRadius === "number" && rescueRadius > 0;
+        const mul = rescue ? rescueRadius : (light ? 0.6 : 1);
+        c.buildCollisionGrid(mul);
+        const n = rescue ? Math.max(1, passes | 0) : ((light ? 1 : Math.max(1, passes | 0)));
+        const push = rescue ? (pushMul || 1) : 1;
+        // 解缠窗口里不做"速度注入"（velocity-neutral），只做位置分离：
+        // 否则每一次推挤都会额外给质点加速，几十对叠在一起就是"疯狂抽搐"的能量泵。
+        for (let i = 0; i < n; i++) c.solveCollision(lockSet, push, rescue);
     },
     afterSolve(c) {
         c.updateGeo();
         if (outlineEnabled && outlineMesh) updateOutlineMesh();
+    },
+    // 🔍 供求解器的"卡住自动解缠"做拓扑自检：只有在布料静止时才会被调用（每 2 秒一次），
+    //    返回三角面互相穿插的对数，>0 才启动解缠。
+    countSelfIntersections() {
+        return countClothSelfIntersections();
     }
 };
 
@@ -8122,20 +8285,21 @@ class Cloth {
                 const idx = this.particles.length;
                 const shouldPin = hasUserPins ? false : (j === resY);
 
-                let initialVx = 0;
-                let initialVy = 0;
-                let initialVz = 0;
+                // ==========================================================
+                // 🧵 出生状态：严格落在静止网格上，初速度保持为 0
+                // ----------------------------------------------------------
+                // 旧实现把初速度写成「按行 sin(j)、按列 cos(i)」的函数：
+                //   initialVx += sin(j*0.6)*0.03   → 每一行整体向左/右滑
+                //   initialVy += cos(i*0.6)*0.02   → 每一列整体向上/下滑
+                // 这正是一个纯剪切速度场：布料还没开始解算，网格就已经被推成
+                // 平行四边形（实测生成后第 1 帧最大剪切角 24°、均值 5.4°），软面料
+                // （雪纺/网纱/蕾丝/真丝）剪切刚度低，压不住 → 生成瞬间就是歪的。
+                // 现在初速度一律为 0，只保留 ±0.006 的 z 位置抖动（打散对称、不产生宏观形变）。
+                const initialVx = 0;
+                const initialVy = 0;
+                const initialVz = 0;
 
-                if (!shouldPin) {
-                    const swingFactor = (resY - j) / resY;
-                    initialVx = 0.008 * swingFactor;
-                    initialVy = 0.003 * swingFactor;
-                    initialVx += Math.sin(j * 0.6) * 0.03;
-                    initialVy += Math.cos(i * 0.6) * 0.02;
-                    initialVz = (Math.random() - 0.5) * 0.03;
-                }
-
-                const startZ = (Math.random() - 0.5) * 0.02;
+                const startZ = (Math.random() - 0.5) * 0.012;
 
                 this.particles.push({
                     x: px, y: py, z: startZ,
@@ -8148,7 +8312,7 @@ class Cloth {
             }
         }
 
-this.springs = [];
+        this.springs = [];
 this.bendSprings = []; // ← 新增：弯曲弹簧
 for (let j = 0; j <= resY; j++) {
     for (let i = 0; i <= resX; i++) {
@@ -8249,6 +8413,9 @@ for (let j = 0; j <= resY; j++) {
             alphaTest: (tearTexture !== null || pbrAlphaTexture !== null) ? 0.05 : 0
         });
         this.mesh = new THREE.Mesh(this.geometry, mat);
+        // 🎥 3D 视角旋转时布料会转出包围球（包围球是按初始平面算的），
+        // 不关掉视锥剔除就会整块突然消失 —— 这就是"转一下面被剔除"的原因
+        this.mesh.frustumCulled = false;
         this.mesh.castShadow = shadowEnabled;
         this.mesh.receiveShadow = shadowEnabled;
 
@@ -8270,7 +8437,7 @@ for (let j = 0; j <= resY; j++) {
 addSpring(i, j, type = 'structural', axis = 'd') {
     const p1 = this.particles[i], p2 = this.particles[j];
     const sIdx = this.springs.length;
-    const restLength = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+    const restLength = Math.hypot(p1.x - p2.x, p1.y - p2.y, p1.z - p2.z);
     this.springs.push({
         i, j,
         restLength,
@@ -8289,7 +8456,7 @@ addBendSpring(i, j) {
     const p1 = this.particles[i], p2 = this.particles[j];
     this.bendSprings.push({
         i, j,
-        restLength: Math.hypot(p1.x - p2.x, p1.y - p2.y),
+        restLength: Math.hypot(p1.x - p2.x, p1.y - p2.y, p1.z - p2.z),
         broken: false
     });
 }
@@ -8344,11 +8511,17 @@ addBendSpring(i, j) {
     }
 
         // 🟢 优化：单独抽出建表步骤，每个子步只建一次
-    buildCollisionGrid() {
+    buildCollisionGrid(radiusMul = 1) {
         const pLen = this.particles.length;
         if (pLen === 0) return;
 
-        const baseRadius = this.baseRestLength * parseFloat(collisionRadiusSlider.value);
+        // 轻量档会传 0.6 进来：半径更小 → 格子更大 → 邻域里候选点更少，实测便宜一半以上
+        // ⚠ 半径硬上限：网格只跳过「自己 ±1 格」的相邻质点，所以半径一旦超过约 2 格距，
+        //   连**平整布面上"隔一个格子"的正常邻居**都会被当成重叠互相排斥 ——
+        //   整块布会鼓成刺猬、并疯狂抽搐。这里做硬钳位，手动填多大都不会炸。
+        const sliderMul = parseFloat(collisionRadiusSlider.value) || 1;
+        const wantedMul = sliderMul * (radiusMul > 0 ? radiusMul : 1);
+        const baseRadius = this.baseRestLength * Math.min(wantedMul, MAX_COLLISION_RADIUS_MUL);
         // 格子边长取 2.5 倍半径，覆盖 1 圈邻域
         const cellSize = baseRadius * 2.5;
         this._currentBaseRadius = baseRadius;
@@ -8395,7 +8568,7 @@ addBendSpring(i, j) {
     }
 
     // 🟢 优化：只负责查表和排斥计算，性能极快
-    solveCollision(lockedIndices) {
+    solveCollision(lockedIndices, pushExtra, velNeutral) {
         const pLen = this.particles.length;
         if (pLen === 0) return;
         const head = this._currentBucketHead;
@@ -8405,8 +8578,14 @@ addBendSpring(i, j) {
         const inv = this._currentInvCellSize;
         const radiusBase = this._currentBaseRadius;
         const particles = this.particles;
-        const pushMul = parseFloat(collisionForceSlider.value);
-        const damping = collisionFriction;
+        const pushMul = parseFloat(collisionForceSlider.value) * (pushExtra > 0 ? pushExtra : 1);
+        // velNeutral：只做位置分离、不改变速度（解缠窗口用，防止能量越推越大）
+        const damping = velNeutral ? 1 : collisionFriction;
+        // 每个质点每帧的**位移预算**：不管叠了多少对、半径多大，
+        // 单帧被推开的总距离都不会超过这个值 —— 这是"刺猬抽搐"的第二道保险。
+        const pushBudget = this.baseRestLength * (velNeutral ? 0.5 : 0.3);
+        const used = this._pushUsed && this._pushUsed.length === pLen ? this._pushUsed : (this._pushUsed = new Float32Array(pLen));
+        used.fill(0);
 
         // 装饰物半径倍率缓存（装饰数量变化时才重建）
         const decorKey = decorations.length;
@@ -8467,15 +8646,24 @@ addBendSpring(i, j) {
                                     const d = Math.sqrt(d2) || 0.001;
                                     const ndx = dx / d, ndy = dy / d, ndz = dz / d;
                                     const overlap = rad - d;
-                                    const push = (overlap < rad * 0.25 ? overlap : rad * 0.25) * pushMul;
+                                    const push = (overlap < rad * 0.5 ? overlap : rad * 0.5) * pushMul;
                                     const w1 = p1.invMass, w2 = p2.invMass;
                                     const wSum = w1 + w2;
                                     if (wSum > 0) {
-                                        const m1 = push * (w1 / wSum), m2 = push * (w2 / wSum);
-                                        p1.x -= ndx * m1; p1.y -= ndy * m1; p1.z -= ndz * m1;
-                                        p2.x += ndx * m2; p2.y += ndy * m2; p2.z += ndz * m2;
-                                        p1.oldX -= ndx * m1 * damping; p1.oldY -= ndy * m1 * damping; p1.oldZ -= ndz * m1 * damping;
-                                        p2.oldX += ndx * m2 * damping; p2.oldY += ndy * m2 * damping; p2.oldZ += ndz * m2 * damping;
+                                        let m1 = push * (w1 / wSum), m2 = push * (w2 / wSum);
+                                        // 位移预算：本帧已推开多少就扣多少，用完就停 ——
+                                        // 这样"叠了几十对"也不会把质点一帧推出好几格（刺猬抽搐的根因）
+                                        const room1 = pushBudget - used[i];
+                                        const room2 = pushBudget - used[j];
+                                        if (m1 > room1) m1 = room1 > 0 ? room1 : 0;
+                                        if (m2 > room2) m2 = room2 > 0 ? room2 : 0;
+                                        if (m1 > 0 || m2 > 0) {
+                                            used[i] += m1; used[j] += m2;
+                                            p1.x -= ndx * m1; p1.y -= ndy * m1; p1.z -= ndz * m1;
+                                            p2.x += ndx * m2; p2.y += ndy * m2; p2.z += ndz * m2;
+                                            p1.oldX -= ndx * m1 * damping; p1.oldY -= ndy * m1 * damping; p1.oldZ -= ndz * m1 * damping;
+                                            p2.oldX += ndx * m2 * damping; p2.oldY += ndy * m2 * damping; p2.oldZ += ndz * m2 * damping;
+                                        }
                                     }
                                 }
                             }
@@ -8488,270 +8676,38 @@ addBendSpring(i, j) {
         this.collisionFrameCount++;
     }
 
-    // 🪶 唤醒低配求解器（切换模式 / 改参数 / 继续解算时调用）
+    // 🪶 唤醒求解器（切换模式 / 改参数 / 继续解算时调用）
     wake() {
-        if (this._fast) this._fast.wake();
+        if (this._solver) this._solver.wake();
     }
 
-simulate(dt) {
-    // 🪶 低配模式：切换到数组化单子步求解器（physics-lowspec.js）
-    if (lowSpecMode) {
-        if (!this._fast) this._fast = new LowSpecSolver({ cloth: this, host: lowSpecHost });
-        this._fast.simulate(dt);
-        return;
-    }
-    const lockedIndices = new Set();
-    for (const item of draggedParticles) lockedIndices.add(item.index);
-    for (const data of multiTouchMap.values()) {
-        for (const item of data.dragged) lockedIndices.add(item.index);
+    /** 求解器诊断快照（性能角标 / 排查用）：asleep、passes、maxViol、effStiff… */
+    solverStats() {
+        return this._solver ? this._solver.stats : null;
     }
 
-    const simMult = parseFloat(simMultSlider.value);
-    let wind = windEnabled ? parseFloat(windSlider.value) : 0;
-    const ang = parseFloat(windDirSlider.value) * Math.PI / 180;
-    const stiff = parseFloat(stiffnessSlider.value);
-    const dampCoeff = parseFloat(dampingSlider.value);
-    const baseMass = Math.max(0.1, parseFloat(massSlider.value));
-    const noiseAmp = parseFloat(windNoiseAmpSlider.value);
-    const noiseRandom = parseFloat(windRandomSlider.value);
-    const noiseSpeed = parseFloat(windSpeedSlider.value);
-    const t = performance.now() * 0.001;
-    const baseWindX = Math.cos(ang), baseWindY = Math.sin(ang);
-    
-    // 🟢 核心重构：引入物理子步（Substeps）防抖动
-    const SUBSTEPS = 3;
-    const subDt = (dt * simMult) / SUBSTEPS;
-    const dt2 = subDt * subDt;
-    
-    const stretchLimit = parseFloat(maxStretchSlider.value);
-    const effectiveStiff = stiff * (1.5 / stretchLimit);
-    // 🧵 硬拉伸上限：只给 stretchLimit 的一小部分（真实布料 1~3%），弹性材料则按比例放宽
-    // 硬上限收紧到 18% 的 stretchLimit 余量：棉/麻类几乎拉不动，弹性材料仍有空间
-    const strainHardCap = Math.min(1.6, Math.max(1.012, 1 + (stretchLimit - 1) * 0.18));
-
-    // ===== 新增参数读取 =====
-    const gBase = parseFloat(gravitySlider.value); // 0~0.3，默认 0.1
-    // 🟢 因为分成了 3 个子步，加速度的位移被缩小了 3 倍，这里补偿回来！
-    const gravityAccel = gBase * 150; 
-    const gAng = gravityAngle * Math.PI / 180;
-    const gravGX = Math.sin(gAng);
-    const gravGY = -Math.cos(gAng);
-
-    const spatialFreq = windSpatialFreq;
-    const windZComp = windZ;
-    const airExp = airDampingExp;
-    const velRet = velocityRetention;
-    const maxDelta = maxVelocity;
-
-    const shearK   = shearStiffness;
-    const stiffXK  = stiffX;
-    const stiffYK  = stiffY;
-    const bendK    = bendStiffness;
-    const springDamp = springDamping;
-
-    const plasticOn       = plasticityEnabled;
-    const plasticRate     = plasticityRate;
-    const plasticThreshold= plasticityThreshold;
-    const plasticRecovery = plasticityRecovery;
-    const plasticMax      = plasticityMax;
-
-    // 装饰重力映射（原样保留）
-    const decorGravityMap = new Float32Array(this.particles.length);
-    for (let d of decorations) {
-        if (d.particleIndex < this.particles.length) {
-            let extraG = 0;
-            if (d.weight === 'heavy') extraG = 2.5;
-            else if (d.weight === 'medium') extraG = 1.0;
-            else if (d.weight === 'light') extraG = -0.2;
-            decorGravityMap[d.particleIndex] += extraG;
+    // ==========================================================
+    // 🧵 解算入口：经典模式与低配模式共用 physics-lowspec.js 的求解器
+    // ----------------------------------------------------------
+    // 以前这里有一份独立的「经典」热循环，和低配求解器各写一遍。
+    // 那份循环里有几处很贵的写法，现在都被统一求解器取代：
+    //   · 每个质点、每个子步都算一次 Math.pow(massRatio, airExp) → 整帧只算一次
+    //   · 每根弹簧、每遍迭代都做 Math.hypot + lockedIndices.has()
+    //     → 改成手写 sqrt + 每帧预计算的权重数组
+    //   · 风的 6 次 sin + 6 次 cos 逐质点逐子步 → 1024 项正弦查表
+    //   · 每帧新建装饰重力 Float32Array → 复用同一块内存
+    //   · 迭代次数永远跑满 → 残差足够小就提前收工（Blender 的误差阈值思路）
+    // 两种模式只靠质量档位区分：
+    //   经典 = 迭代上限 20 / 自碰撞每帧 / 单步预算 6.0ms
+    //   低配 = 迭代上限 10 / 自碰撞隔帧 / 单步预算 3.5ms
+    // ==========================================================
+    simulate(dt) {
+        if (!this._solver) {
+            this._solver = new ClothSolver({ cloth: this, host: clothSolverHost });
         }
+        this._solver.setProfile(lowSpecMode ? SOLVER_PROFILES.lowSpec : SOLVER_PROFILES.normal);
+        this._solver.simulate(dt);
     }
-
-    const iterations = parseInt(document.getElementById("constraintIterations").value);
-
-    // 子步循环
-    for (let step = 0; step < SUBSTEPS; step++) {
-        // ================= 积分 =================
-        for (let i = 0; i < this.particles.length; i++) {
-            const p = this.particles[i];
-            if (p.pinned || lockedIndices.has(i)) continue;
-
-            const extraGravity = decorGravityMap[i];
-            const massRatio = baseMass / 25.0;
-            const retention = Math.max(0, 1.0 - dampCoeff * Math.pow(massRatio, airExp));
-            // 🟢 风力同理，放大 3 倍恢复真实的飘动感
-            const windAccelBase = wind * 105 * Math.pow(massRatio, -0.5);
-
-            const vx = (p.x - p.oldX) * retention * velRet;
-            const vy = (p.y - p.oldY) * retention * velRet;
-            const vz = (p.z - p.oldZ) * retention * velRet;
-            p.oldX = p.x; p.oldY = p.y; p.oldZ = p.z;
-
-            const nx = p.x * spatialFreq + t * noiseSpeed;
-            const ny = p.y * spatialFreq + t * noiseSpeed * 1.2;
-            const nz = p.z * spatialFreq + t * noiseSpeed * 0.8;
-            const turbulenceX = Math.sin(nx) * Math.cos(ny) + Math.sin(nz * 1.3) * Math.cos(nx * 0.9);
-            const turbulenceY = Math.sin(ny) * Math.cos(nz) + Math.sin(nx * 1.1) * Math.cos(ny * 0.8);
-            const turbulenceZ = Math.sin(nz) * Math.cos(nx) + Math.sin(ny * 1.4) * Math.cos(nz * 1.1);
-
-            const windForceX = (baseWindX + turbulenceX * noiseRandom) * windAccelBase * noiseAmp;
-            const windForceY = (baseWindY + turbulenceY * noiseRandom) * windAccelBase * noiseAmp;
-            const windForceZ = (windZComp + turbulenceZ * noiseRandom) * windAccelBase * noiseAmp;
-
-            let dx = vx + windForceX * dt2;
-            let dy = vy + (windForceY + gravityAccel * gravGY - extraGravity) * dt2;
-            let dz = vz + windForceZ * dt2;
-            dx += gravityAccel * gravGX * dt2;
-
-            dx = Math.max(-maxDelta, Math.min(maxDelta, dx));
-            dy = Math.max(-maxDelta, Math.min(maxDelta, dy));
-            dz = Math.max(-maxDelta, Math.min(maxDelta, dz));
-            p.x += dx; p.y += dy; p.z += dz;
-
-            // 地面碰撞
-            if (groundCollisionEnabled && p.y < groundY) {
-                p.y = groundY;
-                const hvx = p.x - p.oldX;
-                const hvz = p.z - p.oldZ;
-                p.oldX = p.x - hvx * groundFriction;
-                p.oldZ = p.z - hvz * groundFriction;
-                p.oldY = p.y + (p.y - p.oldY) * 0.2;
-            }
-        }
-
-        // ================= 弹簧约束 + 塑性 =================
-        for (let iter = 0; iter < iterations; iter++) {
-            for (const s of this.springs) {
-                if (s.broken) continue;
-                const p1 = this.particles[s.i], p2 = this.particles[s.j];
-                const dx = p2.x - p1.x, dy = p2.y - p1.y, dz = p2.z - p1.z;
-                const dist = Math.hypot(dx, dy, dz);
-                if (dist === 0) continue;
-                const w1 = (p1.pinned || lockedIndices.has(s.i)) ? 0 : p1.invMass;
-                const w2 = (p2.pinned || lockedIndices.has(s.j)) ? 0 : p2.invMass;
-                const wSum = w1 + w2;
-                if (wSum === 0) continue;
-
-                // 各向异性刚度
-                let stiffMul = 1.0;
-                if (s.type === 'shear') stiffMul = shearK;
-                else if (s.type === 'structural') {
-                    if (s.axis === 'h') stiffMul = stiffXK;
-                    else if (s.axis === 'v') stiffMul = stiffYK;
-                }
-                const localStiff = effectiveStiff * stiffMul;
-
-                // ===== 塑性形变 =====
-                if (plasticOn) {
-                    const strain = dist / s.restLength;
-                    if (strain > plasticThreshold) {
-                        const excess = dist - s.restLength * plasticThreshold;
-                        s.restLength += excess * plasticRate;
-                        const cap = s.originalRestLength * plasticMax;
-                        if (s.restLength > cap) s.restLength = cap;
-                    } else if (plasticRecovery > 0 && s.restLength > s.originalRestLength) {
-                        s.restLength -= (s.restLength - s.originalRestLength) * plasticRecovery;
-                    }
-                }
-
-                // ===== 拉伸约束：软弹性区间 + 硬上限投影（锁死拉伸，这才不会像橡皮筋）=====
-                // 真实机织布拉伸应变只有 1~3%，所以把允许伸长量压到 stretchLimit 的一小部分，
-                // 且一旦超过就【完全投影】回硬上限（不是只拉回一半），杜绝拉长—回弹。
-                const hardLimit = s.restLength * strainHardCap;
-                let diffX = 0, diffY = 0, diffZ = 0;
-                if (dist > hardLimit) {
-                    // 超出硬上限：把超出量投影掉（修正量为正 = 沿连线拉近）
-                    const corr = ((dist - hardLimit) * 0.9) / dist;
-                    diffX = dx * corr; diffY = dy * corr; diffZ = dz * corr;
-                    // 单次修正上限按静止长度比例，避免一次拉太猛过冲
-                    const pm = Math.sqrt(diffX*diffX + diffY*diffY + diffZ*diffZ);
-                    // 限幅放宽到 3 格：被鼠标硬拽时也能把边收回来，不会拉成条
-                    const passMax = s.restLength * 3.0;
-                    if (pm > passMax) {
-                        const sc2 = passMax / pm;
-                        diffX *= sc2; diffY *= sc2; diffZ *= sc2;
-                    }
-                    // 顺手消耗超限弹簧的动能，防止回弹抖动
-                    p1.oldX = p1.x - (p1.x - p1.oldX) * 0.35;
-                    p1.oldY = p1.y - (p1.y - p1.oldY) * 0.35;
-                    p1.oldZ = p1.z - (p1.z - p1.oldZ) * 0.35;
-                    p2.oldX = p2.x - (p2.x - p2.oldX) * 0.35;
-                    p2.oldY = p2.y - (p2.y - p2.oldY) * 0.35;
-                    p2.oldZ = p2.z - (p2.z - p2.oldZ) * 0.35;
-                } else {
-                    // 弹性区间：软约束回静止长度；超过 1.5% 应变后刚度非线性升高（小形变可弯、一拉就硬）
-                    const strain = dist / s.restLength;
-                    let lk2 = localStiff;
-                    if (strain > 1.015) {
-                        lk2 = localStiff + (1.0 - localStiff) * Math.min(1, (strain - 1.015) / Math.max(0.001, strainHardCap - 1.015));
-                    }
-                    if (lk2 > 1) lk2 = 1;
-                    const diff = (dist - s.restLength) / dist * lk2;
-                    diffX = dx * diff; diffY = dy * diff; diffZ = dz * diff;
-                }
-
-                // 弹簧阻尼（抑制振荡）
-                if (springDamp > 0) {
-                    const rvx = (p2.x - p2.oldX) - (p1.x - p1.oldX);
-                    const rvy = (p2.y - p2.oldY) - (p1.y - p1.oldY);
-                    const rvz = (p2.z - p2.oldZ) - (p1.z - p1.oldZ);
-                    const rvDotN = (rvx * dx + rvy * dy + rvz * dz) / (dist * dist);
-                    diffX += dx * rvDotN * springDamp;
-                    diffY += dy * rvDotN * springDamp;
-                    diffZ += dz * rvDotN * springDamp;
-                }
-
-                const mc = 0.2;
-                diffX = Math.max(-mc, Math.min(mc, diffX));
-                diffY = Math.max(-mc, Math.min(mc, diffY));
-                diffZ = Math.max(-mc, Math.min(mc, diffZ));
-                p1.x += diffX * (w1 / wSum); p1.y += diffY * (w1 / wSum); p1.z += diffZ * (w1 / wSum);
-                p2.x -= diffX * (w2 / wSum); p2.y -= diffY * (w2 / wSum); p2.z -= diffZ * (w2 / wSum);
-            }
-
-            // ===== 弯曲弹簧（不参与撕裂与塑性）=====
-            // 弯曲保持柔顺（褶皱来源），但加一层阻尼吃掉来回振荡 → 不会像橡皮筋弹
-            if (bendK > 0.001 && this.bendSprings.length) {
-                for (const s of this.bendSprings) {
-                    if (s.broken) continue;
-                    const p1 = this.particles[s.i], p2 = this.particles[s.j];
-                    const dx = p2.x - p1.x, dy = p2.y - p1.y, dz = p2.z - p1.z;
-                    const dist = Math.hypot(dx, dy, dz);
-                    if (dist === 0) continue;
-                    const w1 = (p1.pinned || lockedIndices.has(s.i)) ? 0 : p1.invMass;
-                    const w2 = (p2.pinned || lockedIndices.has(s.j)) ? 0 : p2.invMass;
-                    const wSum = w1 + w2;
-                    if (wSum === 0) continue;
-                    // 🟢 核心修复：极弱化弯曲力，使得布料弯曲变得极其柔顺（圆弧状）
-                    const diff = (dist - s.restLength) / dist * bendK * 0.05;
-                    let diffX = dx * diff, diffY = dy * diff, diffZ = dz * diff;
-
-                    const mc = 0.1;
-                    diffX = Math.max(-mc, Math.min(mc, diffX));
-                    diffY = Math.max(-mc, Math.min(mc, diffY));
-                    diffZ = Math.max(-mc, Math.min(mc, diffZ));
-                    p1.x += diffX * (w1 / wSum); p1.y += diffY * (w1 / wSum); p1.z += diffZ * (w1 / wSum);
-                    p2.x -= diffX * (w2 / wSum); p2.y -= diffY * (w2 / wSum); p2.z -= diffZ * (w2 / wSum);
-                }
-            }
-        }
-
-        // ================= 自碰撞 =================
-        if (collisionEnabled) {
-            // 🟢 核心优化：在多次迭代前，只建 1 次空间网格
-            this.buildCollisionGrid();
-            
-            const collisionIters = parseInt(collisionItersSlider.value);
-            const iters = lockedIndices.size > 0 ? 1 : collisionIters;
-            for (let ci = 0; ci < iters; ci++) {
-                this.solveCollision(lockedIndices);
-            }
-        }
-    }
-
-    this.updateGeo();
-    if (outlineEnabled && outlineMesh) updateOutlineMesh();
-}
 }
 
 document.getElementById("genBtn").onclick = () => {
@@ -9305,7 +9261,30 @@ bindToggle("toggleThicknessTex", (checked) => {
 });
 
 bindToggle("toggleOutline", (checked) => { outlineEnabled = checked; updateOutlineMesh(); });
-bindToggle("toggleGrid", (checked) => { showGrid = checked; redrawPreview(); if (clothMesh) clothMesh.material.wireframe = checked; });
+bindToggle("toggleGrid", (checked) => {
+    showGrid = checked;
+    redrawPreview();
+    applyGridRendering();
+});
+
+/**
+ * 🪶 网格线清晰度：three 的 wireframe 只有 1px，而且和布料表面共用深度缓冲 ——
+ * 在 3D 视角下既闪烁又被"吃掉"一截。这里给它加 polygonOffset，把线往前推一点点，
+ * 实测旋转时线不再忽隐忽现。
+ */
+function applyGridRendering() {
+    if (!clothMesh || !clothMesh.material) return;
+    const m = clothMesh.material;
+    m.wireframe = showGrid;
+    m.polygonOffset = !!showGrid;
+    m.polygonOffsetFactor = -2;
+    m.polygonOffsetUnits = -2;
+    m.needsUpdate = true;
+}
+
+// 🪶 线框网格的清晰度：three 的线框 / 三角形网格线太细，3D 视角下几乎看不见。
+// 这里统一按"薄片"画：z 方向给一点几何偏移 + 关掉深度写入，避免和布料表面 z-fighting 闪烁。
+bindToggle("toggleThicknessMesh", (checked) => { thicknessEnabled = checked; updateThicknessMesh(); });
 bindToggle("toggleBlur", (checked) => {
     blurEnabled = checked;
     document.getElementById("blurCtrl").style.display = checked ? "grid" : "none";
@@ -9364,6 +9343,128 @@ let lastTime = performance.now();
 let accumulator = 0;
 const MAX_STEPS = 4;
 
+// 自检结果的临时显示状态
+let selfCheckText = "";
+let selfCheckUntil = 0;
+
+// 🩺 拓扑自检：数一下当前布料有多少对三角面互相穿插（共享顶点的不算）。
+// 只在点按钮时跑一次：按 x 轴扫掠 + AABB 预筛，只有盒子重叠的才做精确的边-三角形求交，
+// 所以 128 网格也是一次点击的量级（几十毫秒），不会影响解算。
+function countClothSelfIntersections() {
+    if (!cloth || !cloth.particles || !cloth.geometry) return -1;
+    const idx = cloth.geometry.index.array;
+    const P = cloth.particles;
+    const T = Math.floor(idx.length / 3);
+    if (T === 0) return -1;
+    const box = new Float32Array(T * 6);
+    for (let t = 0; t < T; t++) {
+        let minx = Infinity, miny = Infinity, minz = Infinity, maxx = -Infinity, maxy = -Infinity, maxz = -Infinity;
+        for (let k = 0; k < 3; k++) {
+            const p = P[idx[t * 3 + k]];
+            if (p.x < minx) minx = p.x; if (p.x > maxx) maxx = p.x;
+            if (p.y < miny) miny = p.y; if (p.y > maxy) maxy = p.y;
+            if (p.z < minz) minz = p.z; if (p.z > maxz) maxz = p.z;
+        }
+        const b = t * 6;
+        box[b] = minx; box[b + 1] = miny; box[b + 2] = minz;
+        box[b + 3] = maxx; box[b + 4] = maxy; box[b + 5] = maxz;
+    }
+    const order = new Int32Array(T);
+    for (let i = 0; i < T; i++) order[i] = i;
+    order.sort((a, b) => box[a * 6] - box[b * 6]);
+
+    const EPS = 1e-9;
+    const tri = (t) => [P[idx[t * 3]], P[idx[t * 3 + 1]], P[idx[t * 3 + 2]]];
+    const sharesVertex = (a, b) => {
+        for (let p = 0; p < 3; p++) {
+            const ia = idx[a * 3 + p];
+            for (let q = 0; q < 3; q++) if (ia === idx[b * 3 + q]) return true;
+        }
+        return false;
+    };
+    const edgeHits = (p0, p1, a, b, c) => {
+        const e1x = b.x - a.x, e1y = b.y - a.y, e1z = b.z - a.z;
+        const e2x = c.x - a.x, e2y = c.y - a.y, e2z = c.z - a.z;
+        const dx = p1.x - p0.x, dy = p1.y - p0.y, dz = p1.z - p0.z;
+        const hx = dy * e2z - dz * e2y, hy = dz * e2x - dx * e2z, hz = dx * e2y - dy * e2x;
+        const det = e1x * hx + e1y * hy + e1z * hz;
+        if (det > -EPS && det < EPS) return false;
+        const inv = 1 / det;
+        const sx = p0.x - a.x, sy = p0.y - a.y, sz = p0.z - a.z;
+        const u = (sx * hx + sy * hy + sz * hz) * inv;
+        if (u < 0 || u > 1) return false;
+        const qx = sy * e1z - sz * e1y, qy = sz * e1x - sx * e1z, qz = sx * e1y - sy * e1x;
+        const v = (dx * qx + dy * qy + dz * qz) * inv;
+        if (v < 0 || u + v > 1) return false;
+        const tt = (e2x * qx + e2y * qy + e2z * qz) * inv;
+        return tt > EPS && tt < 1 - EPS;
+    };
+    const triTri = (t1, t2) => {
+        const A = tri(t1), B = tri(t2);
+        return edgeHits(A[0], A[1], B[0], B[1], B[2]) || edgeHits(A[1], A[2], B[0], B[1], B[2]) ||
+               edgeHits(A[2], A[0], B[0], B[1], B[2]) || edgeHits(B[0], B[1], A[0], A[1], A[2]) ||
+               edgeHits(B[1], B[2], A[0], A[1], A[2]) || edgeHits(B[2], B[0], A[0], A[1], A[2]);
+    };
+
+    let count = 0;
+    const active = [];
+    for (let oi = 0; oi < T; oi++) {
+        const a = order[oi];
+        const aminx = box[a * 6];
+        // 丢掉 x 方向已经不重叠的
+        for (let k = active.length - 1; k >= 0; k--) {
+            if (box[active[k] * 6 + 3] < aminx) { active[k] = active[active.length - 1]; active.pop(); }
+        }
+        const amin = [box[a * 6], box[a * 6 + 1], box[a * 6 + 2]];
+        const amax = [box[a * 6 + 3], box[a * 6 + 4], box[a * 6 + 5]];
+        for (let k = 0; k < active.length; k++) {
+            const b = active[k];
+            if (box[b * 6] > amax[0] || box[b * 6 + 3] < amin[0] ||
+                box[b * 6 + 1] > amax[1] || box[b * 6 + 4] < amin[1] ||
+                box[b * 6 + 2] > amax[2] || box[b * 6 + 5] < amin[2]) continue;
+            if (sharesVertex(a, b)) continue;
+            if (triTri(a, b)) count++;
+        }
+        active.push(a);
+    }
+    return count;
+}
+
+/** 点一次按钮：把结果临时显示在右下角性能角标里（图标 + 数字，语言无关） */
+function runSelfCheck() {
+    const n = countClothSelfIntersections();
+    if (n < 0) { selfCheckText = "?"; }
+    else if (n === 0) { selfCheckText = '<i class="fa-solid fa-circle-check"></i>'; }
+    else { selfCheckText = '<i class="fa-solid fa-triangle-exclamation"></i>' + n; }
+    selfCheckUntil = performance.now() + 6000;
+    updateSolverBadge();
+}
+
+// 🩺 求解器状态角标：💤 = 休眠中（整帧跳过解算）；数字 = 本帧实际跑了几遍约束迭代
+// 这样"布料不动"到底是被冻住（💤）还是被卡住（有遍数在跑）一眼就能分清
+function updateSolverBadge() {
+    if (!perfSolverEl) return;
+    const dict = window.I18N && window.I18N[window.currentLang];
+    if (performance.now() < selfCheckUntil) {
+        perfSolverEl.innerHTML = selfCheckText;
+        perfSolverEl.title = (dict && dict.selfcheck_hint) || "";
+        return;
+    }
+    const st = (cloth && cloth.solverStats) ? cloth.solverStats() : null;
+    if (!st) { perfSolverEl.innerHTML = ""; return; }
+    if (st.rescueLeft > 0 || st.rescueHot > 0) {
+        perfSolverEl.innerHTML = '<i class="fa-solid fa-wrench"></i>';        // 正在/刚刚自动解缠
+        if (dict && dict.perf_solver_hint_rescue) perfSolverEl.title = dict.perf_solver_hint_rescue;
+        return;
+    }
+    if (st.asleep) {
+        perfSolverEl.innerHTML = '<i class="fa-solid fa-moon"></i>';
+    } else {
+        perfSolverEl.innerHTML = '<i class="fa-solid fa-arrows-rotate"></i>' + (st.passes | 0);
+    }
+    if (dict && dict.perf_solver_hint) perfSolverEl.title = dict.perf_solver_hint;
+}
+
 function animate() {
     requestAnimationFrame(animate);
     const now = performance.now();
@@ -9386,6 +9487,7 @@ function animate() {
     let steps = 0;
     while (accumulator >= FIXED_DT && steps < maxSteps) {
         if (isSimulating) {
+            if (shakeFramesLeft > 0) applyShakeImpulse();
             if (cloth) cloth.simulate(FIXED_DT);
             if (clothWetness > 0) updateWetness(FIXED_DT);
             updateDebris(FIXED_DT);
@@ -9406,6 +9508,7 @@ function animate() {
             lowSpecFpsEl.textContent = Math.round(lowSpecFpsCount / lowSpecFpsTime) + " FPS";
             lowSpecFpsCount = 0;
             lowSpecFpsTime = 0;
+            updateSolverBadge();
         }
     }
 

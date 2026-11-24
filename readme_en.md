@@ -4,7 +4,7 @@
 
 # HoshikageRin's Cloth Relax
 
-✨ A physics sandbox featuring cloth simulation using the XPBD algorithm ~~(Verlet + particles)~~ (rewritten on 11/26/12), implemented using three.js
+✨ A physics sandbox featuring cloth simulation using the PBD algorithm ~~(Verlet + particles)~~ (rewritten on 11/26/12), implemented using three.js
 
 All calculations are done locally in the browser, images are not uploaded to any server.
 
