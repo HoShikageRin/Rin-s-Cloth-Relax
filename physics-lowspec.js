@@ -143,6 +143,22 @@ const RESCUE_RADII = [1.0, 1.2];
 const RESCUE_PUSH_MUL = 2.0;
 
 // --------------------------------------------------------------
+// 抖一抖（挠一挠）：力道与时长
+// --------------------------------------------------------------
+// amp 以"静止格距"归一化，所以换网格密度手感一致：
+//   amp 0.3 ≈ 轻轻拨一下；1.1 ≈ 当前默认；3 ≈ 像抖湿毛巾；>5 基本是抽飞。
+const SHAKE = {
+    amp: 1.1,
+    frames: 8,
+    zWeight: 1.6,
+    yWeight: 0.7
+};
+/** 给求解器 / 宿主读的当前抖动参数 */
+function shakeParams() {
+    return { amp: SHAKE.amp, frames: SHAKE.frames, zWeight: SHAKE.zWeight, yWeight: SHAKE.yWeight };
+}
+
+// --------------------------------------------------------------
 // 查表 sin / cos（1024 项，视觉无差别，比 Math.sin 快 3~5 倍）
 // --------------------------------------------------------------
 const SIN_BITS = 10;
@@ -317,6 +333,34 @@ export class ClothSolver {
         }
 
         this.lockSet = new Set();
+
+        // 形状缩放：cloth.springs 里的 restLength 已经反映了这个倍率，
+        // 所以重建后不要重复缩放，直接把"已应用的值"接过来。
+        this._shapeScale = typeof c._shapeScale === "number" ? c._shapeScale : 0;
+    }
+
+    /**
+     * 形状 → 缩放因子（−0.5 ~ 1.0）
+     * 把所有静止长度按 (1+factor) 等比缩放：
+     *   factor < 0 → 布"想"变得更小（绷紧、起皱、像 shrink_min）
+     *   factor > 0 → 布"想"变得更大（松弛、被边界拖住、像 shrink_max）
+     * 用"比例增量"的方式生效，所以可以和塑性形变叠加而不重复缩放。
+     */
+    setShapeScale(factor) {
+        const f = Math.max(-0.5, Math.min(1.0, Number.isFinite(factor) ? factor : 0));
+        const prev = typeof this._shapeScale === "number" ? this._shapeScale : 0;
+        const ratio = (1 + f) / (1 + prev);
+        this._shapeScale = f;
+        this.cloth._shapeScale = f;
+        if (Math.abs(ratio - 1) < 1e-9) return;
+        const m = this.m, bm = this.bm;
+        for (let k = 0; k < m; k++) {
+            this.sRest[k] *= ratio;
+            this.sOrig[k] *= ratio;
+        }
+        for (let k = 0; k < bm; k++) this.bRest[k] *= ratio;
+        this._restDirty = true;
+        this.wake();
     }
 
     /** 布料结构变了（重建 / 换分辨率）时调用 */
@@ -373,6 +417,13 @@ export class ClothSolver {
             const sRest = this.sRest;
             for (let k = 0; k < this.m; k++) {
                 if (ss[k].restLength !== sRest[k]) ss[k].restLength = sRest[k];
+            }
+            const bs = this.cloth.bendSprings;
+            const bRest = this.bRest;
+            if (bs && this.bm) {
+                for (let k = 0; k < this.bm; k++) {
+                    if (bs[k].restLength !== bRest[k]) bs[k].restLength = bRest[k];
+                }
             }
             this._restDirty = false;
         }
@@ -1060,5 +1111,7 @@ export class ClothSolver {
 
 /** 兼容旧名字（script.js 之前 import 的是 LowSpecSolver） */
 export const LowSpecSolver = ClothSolver;
+
+export { SHAKE, shakeParams };
 
 const EMPTY = [];

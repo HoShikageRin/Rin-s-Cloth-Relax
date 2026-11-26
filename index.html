@@ -32,6 +32,11 @@
 
     <button id="backToEditBtn" class="float-back-btn" style="display:none;" data-i18n="back_to_edit">⟵ 返回编辑</button>
 
+    <!-- 🧭 坐标轴方位罗盘：只在 3D 镜头开启时显示，用来判断模型朝向（X 红 / Y 绿 / Z 蓝） -->
+    <div id="axisGizmoWrap" class="axis-gizmo-wrap" style="display:none;" data-tip="cam3d_gizmo_tip">
+      <canvas id="axisGizmo" class="axis-gizmo" width="112" height="112"></canvas>
+    </div>
+
     <!-- 🪶 性能角标：FPS 始终显示；开启低配模式时额外亮出"低配模式"标签 -->
     <div id="lowSpecBadge" class="perf-badge classic">
       <span id="perfModeLabel" class="perf-badge-label"><i class="fa-solid fa-bolt"></i> <span data-i18n="low_spec_badge">低配模式</span></span>
@@ -181,6 +186,16 @@
         <button id="genBtn" class="btn-primary" style="margin-top:10px;"><i class="fa-solid fa-wand-magic-sparkles"></i> <span data-i18n="btn_gen">生成布料</span></button>
         <button id="pauseBtn" class="btn-normal"><i class="fa-solid fa-pause"></i> <span data-i18n="btn_pause">暂停解算</span></button>
         <button id="btnShake" class="btn-normal"><i class="fa-solid fa-shake"></i> <span data-i18n="btn_shake">抖一抖</span></button>
+        <div class="ctrl" style="margin-top: 6px;">
+          <label for="shakeAmp" data-i18n="shake_amp">抖动力度</label>
+          <span id="shakeAmpValue">1.1</span>
+          <input id="shakeAmp" type="range" min="0" max="20" step="0.1" value="1.1">
+        </div>
+        <div class="ctrl">
+          <label for="shakeFrames" data-i18n="shake_frames">抖动时长</label>
+          <span id="shakeFramesValue">8</span>
+          <input id="shakeFrames" type="range" min="1" max="120" step="1" value="8">
+        </div>
 
         <!-- 以下是装饰相关，放在生成按钮之后，按需展开 -->
         <!-- ✅ 自定义装饰上传与管理 -->
@@ -511,6 +526,11 @@
         <details class="sub-group">
           <summary class="sub-group-head"><i class="fa-solid fa-layer-group"></i> <span data-i18n="spring_advanced">弹簧高级</span></summary>
           <div class="sub-group-body">
+<div class="ctrl">
+  <label for="shapeScale" data-i18n="shape_scale" data-tip="shape_scale_hint">形状缩放因子</label>
+  <span id="shapeScaleValue" style="min-width: 58px; text-align: right;">0.000</span>
+  <input id="shapeScale" type="range" min="-0.5" max="1.0" step="0.001" value="0">
+</div>
 <div class="ctrl">
   <label for="bendStiffness" data-i18n="bend_stiffness">弯曲刚度</label>
   <span id="bendStiffnessValue">0.10</span>
@@ -968,6 +988,7 @@
         <div class="toggle-group">
           <div class="toggle-item"><span class="toggle-label"><span data-i18n="fx_tex">贴图</span></span><label class="toggle-switch"><input type="checkbox" id="toggleTex"><span class="slider"></span></label></div>
           <div class="toggle-item"><span class="toggle-label"><span data-i18n="fx_shadow">影子</span></span><label class="toggle-switch"><input type="checkbox" id="toggleShadow"><span class="slider"></span></label></div>
+          <div class="toggle-item"><span class="toggle-label"><i class="fa-solid fa-square-full" style="margin-right:6px;color:#B9C0CB;"></i><span data-i18n="fx_ground">地面</span></span><label class="toggle-switch"><input type="checkbox" id="toggleGroundShow"><span class="slider"></span></label></div>
           <div class="toggle-item"><span class="toggle-label"><span data-i18n="fx_thickness">厚度</span></span><label class="toggle-switch"><input type="checkbox" id="toggleThickness"><span class="slider"></span></label></div>
           <div class="toggle-item"><span class="toggle-label"><span data-i18n="fx_grid">网格</span></span><label class="toggle-switch"><input type="checkbox" id="toggleGrid"><span class="slider"></span></label></div>
           <div class="toggle-item"><span class="toggle-label"><span data-i18n="fx_blur">动态模糊</span></span><label class="toggle-switch"><input type="checkbox" id="toggleBlur"><span class="slider"></span></label></div>

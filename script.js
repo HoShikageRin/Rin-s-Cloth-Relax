@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // 🪶 低配模式物理求解器（独立文件：physics-lowspec.js）
-import { ClothSolver, LOW_SPEC, SOLVER_PROFILES } from './physics-lowspec.js';
+import { ClothSolver, LOW_SPEC, SOLVER_PROFILES, SHAKE } from './physics-lowspec.js';
 
 const selDecorColor = document.getElementById("selDecorColor");
 const previewCanvas = document.getElementById("previewCanvas");
@@ -39,7 +39,14 @@ let clothOpacity = 1.0;
 const MAX_COLLISION_RADIUS_MUL = 1.4;
 // 🪞 背面压暗强度（0~0.5）：布料是单层双面材质，翻过来看到的是同一张图，
 // 视觉上分不清哪面朝你。用 gl_FrontFacing 把背面压暗一点就有"里外"了。
-let backShadeStrength = 0.14;
+// ⚠️ 默认 0（关闭）：一旦布料因为"形状缩放因子"收缩成碗状，内壁全是背面，
+//    压暗会让整块布看起来"发灰、像只显示了反面"。用户要的是两面看到同样的印花，
+//    所以这里默认不区分正反。想要"里外感"时把它调回 0.10~0.15 即可。
+let backShadeStrength = 0;
+// 🪞 背面"收掉印花"强度（0~1，默认 1）：DoubleSide 下背面采样的是同一张图（左右镜像），
+// 转过去或者布层相叠时，那层镜像印花会和正面叠成一重影。
+// 这里在片元阶段把背面的颜色往"素布底色"收，正面完全不动。
+let backHidePrint = 1.0;
 
 let clothTransmission = 0.0;
 let clothClearcoat = 0.0;
@@ -159,6 +166,7 @@ let cloth = null;
 let ambientLight = null;
 let dirLight = null;
 let groundMesh = null;
+let groundShadowMesh = null;
 let backWallMesh = null;
 let raycaster, mouse;
 
@@ -629,7 +637,10 @@ const physicsExtraDefaults = {
     bend: 0.10, shear: 1.0, stiffX: 1.0, stiffY: 1.0, springDamp: 0.0,
     windSpatial: 4.0, windZ: 0.0,
     gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.8,
-    collFric: 0.6, dragStr: 0.4, airExp: 0.2, maxVel: 0.20, velRet: 1.0
+    collFric: 0.6, dragStr: 0.4, airExp: 0.2, maxVel: 0.20, velRet: 1.0,
+    // 形状缩放因子：0 = 原始尺寸。必须在这里给默认值，
+    // 否则预设没写 shape 时 applyPresetToSliders 会把 undefined 塞进滑杆 → 开局就是 NaN
+    shape: 0
 };
 
 // ==============================================================
@@ -661,221 +672,236 @@ const REST_POSE = {
 
 const physicsPresets = {
     // ==========================================================
+    // ⚖️ 全量重写（v2）：把「算力」和「手感」两端的极端值收进统一区间，
+    //    每块面料仍保留自己的性格（刚度 / 弯曲 / 剪切 / 质量 / 最大拉伸），
+    //    但不再出现「某几个预设特别重」的情况。
+    //
+    //    算力上限（这三项相乘就是单帧成本）：
+    //      meshRes    ≤ 32     （原来 spidersilk 40 / silk·chiffon·lace 36 / tulle·gauze 34）
+    //      iterations ≤ 10     （原来 jelly 15 / metalsheet·clingfilm·rubber 12）
+    //      hz         ≤ 110    （原来 metalsheet·jelly 120）
+    //    最贵的预设从 ≈3.4× 棉布 降到 ≈1.9× 棉布，全部 65 个落在 0.3~1.9× 区间内。
+    //
+    //    手感上限（防止「硬得像纸板」，也降低自交锁死的概率）：
+    //      stiffness ≤ 0.90    bend ≤ 0.70    shear ≤ 1.60
+    //      mass      ≤ 120     damping ≤ 0.22  maxVel ≤ 0.45
+    // ==========================================================
+    // ==========================================================
     // 日常服装面料
     // ==========================================================
     cotton: {
         // 平纹棉：软硬适中，垂坠自然，拉扯后有轻微回弹
-        stiffness: 0.50, maxStretch: 1.30, damping: 0.055, mass: 30.0, meshRes: 24, maxDrag: 0.6, iterations: 8, hz: 100,
-        plasticity: false, plRate: 0.05, plThreshold: 1.05, plRecovery: 0.0015, plMax: 1.6,
-        bend: 0.25, shear: 1.00, stiffX: 1.00, stiffY: 1.00, springDamp: 0.02,
+        stiffness: 0.5, maxStretch: 1.3, damping: 0.055, mass: 30, meshRes: 24, maxDrag: 0.6, iterations: 8, hz: 100,
+        plasticity: false, plRate: 0.05, plThreshold: 1.05, plRecovery: 0.002, plMax: 1.6,
+        bend: 0.25, shear: 1, stiffX: 1, stiffY: 1, springDamp: 0.02,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.80,
-        collFric: 0.60, dragStr: 0.40, airExp: 0.20, maxVel: 0.30, velRet: 1.0
+        collFric: 0.6, dragStr: 0.4, airExp: 0.2, maxVel: 0.3, velRet: 1.0
     },
     washed_cotton: {
         // 水洗棉：比平纹更软、更有"穿旧了"的松弛感，形变更容易留下
-        stiffness: 0.32, maxStretch: 1.42, damping: 0.065, mass: 35.0, meshRes: 24, maxDrag: 0.8, iterations: 8, hz: 100,
-        plasticity: true, plRate: 0.09, plThreshold: 1.03, plRecovery: 0.0025, plMax: 2.2,
-        bend: 0.14, shear: 0.88, stiffX: 1.00, stiffY: 0.95, springDamp: 0.02,
+        stiffness: 0.32, maxStretch: 1.42, damping: 0.065, mass: 35, meshRes: 24, maxDrag: 0.8, iterations: 8, hz: 100,
+        plasticity: true, plRate: 0.09, plThreshold: 1.03, plRecovery: 0.003, plMax: 2.2,
+        bend: 0.14, shear: 0.9, stiffX: 1, stiffY: 0.95, springDamp: 0.02,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.80,
-        collFric: 0.62, dragStr: 0.46, airExp: 0.20, maxVel: 0.32, velRet: 1.0
+        collFric: 0.62, dragStr: 0.46, airExp: 0.2, maxVel: 0.32, velRet: 1.0
     },
     linen: {
         // 亚麻：清爽的骨架感，挺括但易碎褶
-        stiffness: 0.72, maxStretch: 1.14, damping: 0.060, mass: 25.0, meshRes: 26, maxDrag: 0.5, iterations: 8, hz: 100,
-        plasticity: true, plRate: 0.05, plThreshold: 1.04, plRecovery: 0.0015, plMax: 1.8,
-        bend: 0.38, shear: 1.25, stiffX: 1.30, stiffY: 1.05, springDamp: 0.03,
+        stiffness: 0.72, maxStretch: 1.14, damping: 0.06, mass: 25, meshRes: 26, maxDrag: 0.5, iterations: 8, hz: 100,
+        plasticity: true, plRate: 0.05, plThreshold: 1.04, plRecovery: 0.002, plMax: 1.8,
+        bend: 0.38, shear: 1.25, stiffX: 1.3, stiffY: 1.05, springDamp: 0.03,
         windSpatial: 4.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.85,
         collFric: 0.68, dragStr: 0.38, airExp: 0.22, maxVel: 0.25, velRet: 1.0
     },
     wool: {
         // 羊毛：厚重、蓬松，下坠感明显
-        stiffness: 0.62, maxStretch: 1.16, damping: 0.085, mass: 55.0, meshRes: 30, maxDrag: 0.5, iterations: 8, hz: 100,
-        plasticity: false, plRate: 0.05, plThreshold: 1.05, plRecovery: 0.002, plMax: 2.0,
-        bend: 0.42, shear: 1.30, stiffX: 1.18, stiffY: 1.10, springDamp: 0.04,
+        stiffness: 0.62, maxStretch: 1.16, damping: 0.085, mass: 55, meshRes: 30, maxDrag: 0.5, iterations: 8, hz: 100,
+        plasticity: false, plRate: 0.05, plThreshold: 1.05, plRecovery: 0.002, plMax: 2,
+        bend: 0.42, shear: 1.3, stiffX: 1.2, stiffY: 1.1, springDamp: 0.04,
         windSpatial: 4.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.85,
-        collFric: 0.70, dragStr: 0.33, airExp: 0.26, maxVel: 0.28, velRet: 1.0
+        collFric: 0.7, dragStr: 0.33, airExp: 0.26, maxVel: 0.28, velRet: 1.0
     },
     velvet: {
         // 天鹅绒：密实、垂坠、几乎不回弹，压下去像绒毯
-        stiffness: 0.55, maxStretch: 1.18, damping: 0.090, mass: 60.0, meshRes: 32, maxDrag: 0.6, iterations: 8, hz: 100,
+        stiffness: 0.55, maxStretch: 1.18, damping: 0.09, mass: 60, meshRes: 30, maxDrag: 0.6, iterations: 8, hz: 100,
         plasticity: true, plRate: 0.07, plThreshold: 1.06, plRecovery: 0.001, plMax: 2.2,
-        bend: 0.22, shear: 0.95, stiffX: 1.10, stiffY: 1.00, springDamp: 0.05,
+        bend: 0.22, shear: 0.95, stiffX: 1.1, stiffY: 1, springDamp: 0.05,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.82,
         collFric: 0.72, dragStr: 0.36, airExp: 0.24, maxVel: 0.26, velRet: 1.0
     },
     worsted_wool: {
         // 精纺毛呢：西装面料，紧密、挺括、几乎不飘
-        stiffness: 0.82, maxStretch: 1.08, damping: 0.100, mass: 85.0, meshRes: 30, maxDrag: 0.3, iterations: 8, hz: 110,
+        stiffness: 0.82, maxStretch: 1.08, damping: 0.1, mass: 85, meshRes: 30, maxDrag: 0.3, iterations: 8, hz: 110,
         plasticity: false, plRate: 0.04, plThreshold: 1.03, plRecovery: 0.001, plMax: 1.6,
-        bend: 0.58, shear: 1.55, stiffX: 1.50, stiffY: 1.20, springDamp: 0.06,
+        bend: 0.58, shear: 1.55, stiffX: 1.35, stiffY: 1.2, springDamp: 0.06,
         windSpatial: 4.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.86,
-        collFric: 0.70, dragStr: 0.28, airExp: 0.28, maxVel: 0.24, velRet: 1.0
+        collFric: 0.7, dragStr: 0.28, airExp: 0.28, maxVel: 0.24, velRet: 1.0
     },
     tr_blend: {
         // TR 混纺：西装里布那种"有骨架但不硬"的手感
-        stiffness: 0.60, maxStretch: 1.22, damping: 0.070, mass: 40.0, meshRes: 26, maxDrag: 0.5, iterations: 8, hz: 100,
+        stiffness: 0.6, maxStretch: 1.22, damping: 0.07, mass: 40, meshRes: 26, maxDrag: 0.5, iterations: 8, hz: 100,
         plasticity: false, plRate: 0.04, plThreshold: 1.08, plRecovery: 0.003, plMax: 1.8,
-        bend: 0.30, shear: 1.15, stiffX: 1.10, stiffY: 1.00, springDamp: 0.03,
+        bend: 0.3, shear: 1.15, stiffX: 1.1, stiffY: 1, springDamp: 0.03,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.80,
-        collFric: 0.62, dragStr: 0.40, airExp: 0.22, maxVel: 0.28, velRet: 1.0
+        collFric: 0.62, dragStr: 0.4, airExp: 0.22, maxVel: 0.28, velRet: 1.0
     },
     polyester: {
         // 涤纶：顺滑、微弹、轻，抖一抖就平
-        stiffness: 0.68, maxStretch: 1.28, damping: 0.055, mass: 25.0, meshRes: 28, maxDrag: 0.5, iterations: 8, hz: 100,
-        plasticity: false, plRate: 0.02, plThreshold: 1.10, plRecovery: 0.006, plMax: 1.5,
-        bend: 0.32, shear: 1.30, stiffX: 1.20, stiffY: 1.15, springDamp: 0.03,
+        stiffness: 0.68, maxStretch: 1.28, damping: 0.055, mass: 25, meshRes: 28, maxDrag: 0.5, iterations: 8, hz: 100,
+        plasticity: false, plRate: 0.02, plThreshold: 1.1, plRecovery: 0.006, plMax: 1.5,
+        bend: 0.32, shear: 1.3, stiffX: 1.2, stiffY: 1.15, springDamp: 0.03,
         windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.78,
-        collFric: 0.55, dragStr: 0.36, airExp: 0.22, maxVel: 0.30, velRet: 1.0
+        collFric: 0.55, dragStr: 0.36, airExp: 0.22, maxVel: 0.3, velRet: 1.0
     },
     nylon: {
         // 尼龙：轻薄顺滑，表面滑溜（碰撞摩擦低），容易整体滑动
-        stiffness: 0.64, maxStretch: 1.34, damping: 0.045, mass: 15.0, meshRes: 28, maxDrag: 0.7, iterations: 9, hz: 100,
+        stiffness: 0.64, maxStretch: 1.34, damping: 0.045, mass: 15, meshRes: 28, maxDrag: 0.7, iterations: 9, hz: 100,
         plasticity: false, plRate: 0.03, plThreshold: 1.12, plRecovery: 0.005, plMax: 1.6,
-        bend: 0.20, shear: 1.05, stiffX: 1.10, stiffY: 1.05, springDamp: 0.02,
+        bend: 0.2, shear: 1.05, stiffX: 1.1, stiffY: 1.05, springDamp: 0.02,
         windSpatial: 5.2, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.55,
         collFric: 0.28, dragStr: 0.44, airExp: 0.14, maxVel: 0.32, velRet: 1.0
     },
     terry: {
         // 毛巾布：厚重、抓地、毛圈吸水感，拖动时很"粘"
-        stiffness: 0.60, maxStretch: 1.30, damping: 0.130, mass: 75.0, meshRes: 30, maxDrag: 0.6, iterations: 9, hz: 100,
+        stiffness: 0.6, maxStretch: 1.3, damping: 0.13, mass: 75, meshRes: 30, maxDrag: 0.6, iterations: 9, hz: 100,
         plasticity: false, plRate: 0.05, plThreshold: 1.06, plRecovery: 0.002, plMax: 1.8,
-        bend: 0.30, shear: 1.10, stiffX: 1.08, stiffY: 1.05, springDamp: 0.07,
+        bend: 0.3, shear: 1.1, stiffX: 1.1, stiffY: 1.05, springDamp: 0.07,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.92,
         collFric: 0.88, dragStr: 0.32, airExp: 0.28, maxVel: 0.24, velRet: 1.0
     },
     felt: {
         // 毛毡：致密、几乎不回弹、压上去是"实心的"
-        stiffness: 0.70, maxStretch: 1.12, damping: 0.160, mass: 60.0, meshRes: 26, maxDrag: 0.45, iterations: 9, hz: 100,
+        stiffness: 0.7, maxStretch: 1.12, damping: 0.16, mass: 60, meshRes: 26, maxDrag: 0.45, iterations: 9, hz: 100,
         plasticity: true, plRate: 0.06, plThreshold: 1.04, plRecovery: 0.002, plMax: 1.6,
-        bend: 0.62, shear: 1.40, stiffX: 1.15, stiffY: 1.10, springDamp: 0.15,
+        bend: 0.62, shear: 1.4, stiffX: 1.15, stiffY: 1.1, springDamp: 0.15,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.90,
-        collFric: 0.82, dragStr: 0.28, airExp: 0.30, maxVel: 0.22, velRet: 1.0
+        collFric: 0.82, dragStr: 0.28, airExp: 0.3, maxVel: 0.22, velRet: 1.0
     },
     corduroy: {
         // 灯芯绒：厚实有绒条，弯折时有明显的"骨位"
-        stiffness: 0.56, maxStretch: 1.22, damping: 0.120, mass: 85.0, meshRes: 30, maxDrag: 0.45, iterations: 9, hz: 100,
-        plasticity: false, plRate: 0.04, plThreshold: 1.06, plRecovery: 0.0015, plMax: 1.8,
-        bend: 0.40, shear: 1.10, stiffX: 1.10, stiffY: 1.05, springDamp: 0.05,
+        stiffness: 0.56, maxStretch: 1.22, damping: 0.12, mass: 85, meshRes: 30, maxDrag: 0.45, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.04, plThreshold: 1.06, plRecovery: 0.002, plMax: 1.8,
+        bend: 0.4, shear: 1.1, stiffX: 1.1, stiffY: 1.05, springDamp: 0.05,
         windSpatial: 4.2, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.88,
         collFric: 0.78, dragStr: 0.34, airExp: 0.26, maxVel: 0.24, velRet: 1.0
     },
     sherpa: {
         // 羊羔绒：蓬松、厚、阻尼大，抖起来像一团棉
-        stiffness: 0.40, maxStretch: 1.38, damping: 0.170, mass: 70.0, meshRes: 28, maxDrag: 0.7, iterations: 9, hz: 100,
-        plasticity: false, plRate: 0.06, plThreshold: 1.05, plRecovery: 0.003, plMax: 2.0,
-        bend: 0.20, shear: 0.88, stiffX: 1.00, stiffY: 1.00, springDamp: 0.07,
+        stiffness: 0.4, maxStretch: 1.38, damping: 0.17, mass: 70, meshRes: 28, maxDrag: 0.7, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.06, plThreshold: 1.05, plRecovery: 0.003, plMax: 2,
+        bend: 0.2, shear: 0.9, stiffX: 1, stiffY: 1, springDamp: 0.07,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.90,
-        collFric: 0.86, dragStr: 0.40, airExp: 0.30, maxVel: 0.24, velRet: 1.0
+        collFric: 0.86, dragStr: 0.4, airExp: 0.3, maxVel: 0.24, velRet: 1.0
     },
     chenille: {
         // 雪尼尔：极重、极密实，几乎像一块毯子
-        stiffness: 0.52, maxStretch: 1.16, damping: 0.185, mass: 120.0, meshRes: 28, maxDrag: 0.4, iterations: 10, hz: 110,
-        plasticity: true, plRate: 0.03, plThreshold: 1.10, plRecovery: 0.001, plMax: 1.6,
-        bend: 0.30, shear: 1.20, stiffX: 1.15, stiffY: 1.10, springDamp: 0.09,
+        stiffness: 0.52, maxStretch: 1.16, damping: 0.185, mass: 120, meshRes: 28, maxDrag: 0.4, iterations: 9, hz: 110,
+        plasticity: true, plRate: 0.03, plThreshold: 1.1, plRecovery: 0.001, plMax: 1.6,
+        bend: 0.3, shear: 1.2, stiffX: 1.15, stiffY: 1.1, springDamp: 0.09,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.92,
-        collFric: 0.84, dragStr: 0.26, airExp: 0.32, maxVel: 0.20, velRet: 1.0
+        collFric: 0.84, dragStr: 0.26, airExp: 0.32, maxVel: 0.2, velRet: 1.0
     },
     mohair: {
         // 马海毛：毛感强、边缘蓬，滑动摩擦大
-        stiffness: 0.50, maxStretch: 1.28, damping: 0.100, mass: 50.0, meshRes: 30, maxDrag: 0.55, iterations: 9, hz: 100,
+        stiffness: 0.5, maxStretch: 1.28, damping: 0.1, mass: 50, meshRes: 30, maxDrag: 0.55, iterations: 9, hz: 100,
         plasticity: false, plRate: 0.05, plThreshold: 1.05, plRecovery: 0.002, plMax: 1.8,
-        bend: 0.40, shear: 1.15, stiffX: 1.10, stiffY: 1.05, springDamp: 0.06,
+        bend: 0.4, shear: 1.15, stiffX: 1.1, stiffY: 1.05, springDamp: 0.06,
         windSpatial: 4.4, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.86,
-        collFric: 0.80, dragStr: 0.34, airExp: 0.24, maxVel: 0.26, velRet: 1.0
+        collFric: 0.8, dragStr: 0.34, airExp: 0.24, maxVel: 0.26, velRet: 1.0
     },
     satin: {
         // 缎面：滑、垂、贴身，细褶多而流畅
-        stiffness: 0.42, maxStretch: 1.38, damping: 0.050, mass: 45.0, meshRes: 32, maxDrag: 0.7, iterations: 10, hz: 100,
-        plasticity: false, plRate: 0.03, plThreshold: 1.10, plRecovery: 0.004, plMax: 1.7,
-        bend: 0.07, shear: 0.75, stiffX: 1.00, stiffY: 1.00, springDamp: 0.02,
+        stiffness: 0.42, maxStretch: 1.38, damping: 0.05, mass: 45, meshRes: 30, maxDrag: 0.7, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.03, plThreshold: 1.1, plRecovery: 0.004, plMax: 1.7,
+        bend: 0.07, shear: 0.75, stiffX: 1, stiffY: 1, springDamp: 0.02,
         windSpatial: 4.6, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.55,
-        collFric: 0.38, dragStr: 0.46, airExp: 0.18, maxVel: 0.30, velRet: 1.0
+        collFric: 0.38, dragStr: 0.46, airExp: 0.18, maxVel: 0.3, velRet: 1.0
     },
     taffeta: {
         // 塔夫绸：脆生生的"沙沙"感，褶皱锐利不易塌
-        stiffness: 0.86, maxStretch: 1.06, damping: 0.060, mass: 30.0, meshRes: 32, maxDrag: 0.4, iterations: 10, hz: 100,
+        stiffness: 0.86, maxStretch: 1.06, damping: 0.06, mass: 30, meshRes: 30, maxDrag: 0.4, iterations: 9, hz: 100,
         plasticity: false, plRate: 0.03, plThreshold: 1.05, plRecovery: 0.002, plMax: 1.5,
-        bend: 0.72, shear: 1.60, stiffX: 1.20, stiffY: 1.15, springDamp: 0.04,
+        bend: 0.7, shear: 1.6, stiffX: 1.2, stiffY: 1.15, springDamp: 0.04,
         windSpatial: 4.8, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.80,
         collFric: 0.55, dragStr: 0.34, airExp: 0.22, maxVel: 0.26, velRet: 1.0
     },
     organza: {
         // 欧根纱：薄而挺，像有骨头的纱，抖一下很有弹性
-        stiffness: 0.76, maxStretch: 1.10, damping: 0.050, mass: 7.0, meshRes: 34, maxDrag: 0.6, iterations: 9, hz: 100,
-        plasticity: false, plRate: 0.02, plThreshold: 1.10, plRecovery: 0.006, plMax: 1.4,
-        bend: 0.50, shear: 1.45, stiffX: 1.15, stiffY: 1.00, springDamp: 0.03,
+        stiffness: 0.76, maxStretch: 1.1, damping: 0.05, mass: 7, meshRes: 30, maxDrag: 0.6, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.02, plThreshold: 1.1, plRecovery: 0.006, plMax: 1.4,
+        bend: 0.5, shear: 1.45, stiffX: 1.15, stiffY: 1, springDamp: 0.03,
         windSpatial: 5.2, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.55,
         collFric: 0.35, dragStr: 0.46, airExp: 0.14, maxVel: 0.32, velRet: 1.0
     },
     tulle: {
         // 蓬蓬网纱：几乎没有重量，一吹就走，回弹慢
-        stiffness: 0.32, maxStretch: 1.70, damping: 0.045, mass: 3.2, meshRes: 34, maxDrag: 1.4, iterations: 10, hz: 100,
+        stiffness: 0.32, maxStretch: 1.7, damping: 0.045, mass: 3.2, meshRes: 30, maxDrag: 1.4, iterations: 9, hz: 100,
         plasticity: false, plRate: 0.01, plThreshold: 1.35, plRecovery: 0.015, plMax: 1.3,
-        bend: 0.05, shear: 0.55, stiffX: 1.00, stiffY: 1.00, springDamp: 0.01,
+        bend: 0.05, shear: 0.55, stiffX: 1, stiffY: 1, springDamp: 0.01,
         windSpatial: 6.2, windZ: 0.05, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.40,
-        collFric: 0.30, dragStr: 0.55, airExp: 0.08, maxVel: 0.40, velRet: 1.0
+        collFric: 0.3, dragStr: 0.55, airExp: 0.08, maxVel: 0.4, velRet: 1.0
     },
     lace: {
         // 蕾丝：轻薄柔软，边角细碎，垂下来像一层雾
-        stiffness: 0.30, maxStretch: 1.55, damping: 0.040, mass: 4.5, meshRes: 36, maxDrag: 0.9, iterations: 10, hz: 100,
-        plasticity: false, plRate: 0.02, plThreshold: 1.30, plRecovery: 0.010, plMax: 1.4,
-        bend: 0.02, shear: 0.50, stiffX: 1.00, stiffY: 1.00, springDamp: 0.01,
+        stiffness: 0.3, maxStretch: 1.55, damping: 0.04, mass: 4.5, meshRes: 30, maxDrag: 0.9, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.02, plThreshold: 1.3, plRecovery: 0.01, plMax: 1.4,
+        bend: 0.02, shear: 0.5, stiffX: 1, stiffY: 1, springDamp: 0.01,
         windSpatial: 5.8, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.45,
-        collFric: 0.35, dragStr: 0.52, airExp: 0.10, maxVel: 0.36, velRet: 1.0
+        collFric: 0.35, dragStr: 0.52, airExp: 0.1, maxVel: 0.36, velRet: 1.0
     },
     silk: {
         // 真丝：极轻极滑，垂坠如水，几乎不留褶
-        stiffness: 0.30, maxStretch: 1.50, damping: 0.030, mass: 8.0, meshRes: 36, maxDrag: 0.8, iterations: 10, hz: 100,
+        stiffness: 0.3, maxStretch: 1.5, damping: 0.03, mass: 8, meshRes: 30, maxDrag: 0.8, iterations: 9, hz: 100,
         plasticity: false, plRate: 0.02, plThreshold: 1.15, plRecovery: 0.005, plMax: 1.5,
-        bend: 0.05, shear: 0.60, stiffX: 1.00, stiffY: 1.00, springDamp: 0.01,
+        bend: 0.05, shear: 0.6, stiffX: 1, stiffY: 1, springDamp: 0.01,
         windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.50,
-        collFric: 0.40, dragStr: 0.50, airExp: 0.15, maxVel: 0.35, velRet: 1.0
+        collFric: 0.4, dragStr: 0.5, airExp: 0.15, maxVel: 0.35, velRet: 1.0
     },
     chiffon: {
         // 雪纺：比真丝更轻更透，飘起来没有阻力
-        stiffness: 0.24, maxStretch: 1.40, damping: 0.020, mass: 4.0, meshRes: 36, maxDrag: 1.0, iterations: 10, hz: 100,
-        plasticity: false, plRate: 0.01, plThreshold: 1.20, plRecovery: 0.010, plMax: 1.3,
-        bend: 0.02, shear: 0.50, stiffX: 1.00, stiffY: 1.00, springDamp: 0.02,
+        stiffness: 0.24, maxStretch: 1.4, damping: 0.02, mass: 4, meshRes: 30, maxDrag: 1.0, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.01, plThreshold: 1.2, plRecovery: 0.01, plMax: 1.3,
+        bend: 0.02, shear: 0.5, stiffX: 1, stiffY: 1, springDamp: 0.02,
         windSpatial: 6.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.40,
-        collFric: 0.35, dragStr: 0.55, airExp: 0.10, maxVel: 0.40, velRet: 1.0
+        collFric: 0.35, dragStr: 0.55, airExp: 0.1, maxVel: 0.4, velRet: 1.0
     },
     gauze: {
         // 医用纱布：极轻、透、软塌，几乎没有形状记忆
-        stiffness: 0.36, maxStretch: 1.70, damping: 0.035, mass: 5.0, meshRes: 34, maxDrag: 1.1, iterations: 10, hz: 100,
+        stiffness: 0.36, maxStretch: 1.7, damping: 0.035, mass: 5, meshRes: 30, maxDrag: 1.1, iterations: 9, hz: 100,
         plasticity: false, plRate: 0.02, plThreshold: 1.25, plRecovery: 0.008, plMax: 1.4,
-        bend: 0.03, shear: 0.60, stiffX: 1.00, stiffY: 1.00, springDamp: 0.02,
+        bend: 0.03, shear: 0.6, stiffX: 1, stiffY: 1, springDamp: 0.02,
         windSpatial: 6.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.50,
-        collFric: 0.40, dragStr: 0.50, airExp: 0.10, maxVel: 0.36, velRet: 1.0
+        collFric: 0.4, dragStr: 0.5, airExp: 0.1, maxVel: 0.36, velRet: 1.0
     },
     spidersilk: {
         // 蛛丝：几乎没重量，弹性极大，一松手就回弹
-        stiffness: 0.22, maxStretch: 2.30, damping: 0.018, mass: 1.4, meshRes: 40, maxDrag: 2.6, iterations: 12, hz: 100,
-        plasticity: false, plRate: 0.005, plThreshold: 1.30, plRecovery: 0.010, plMax: 1.5,
-        bend: 0.00, shear: 0.30, stiffX: 1.00, stiffY: 1.00, springDamp: 0.005,
+        stiffness: 0.22, maxStretch: 2.3, damping: 0.02, mass: 1.5, meshRes: 30, maxDrag: 2.6, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.01, plThreshold: 1.3, plRecovery: 0.01, plMax: 1.5,
+        bend: 0, shear: 0.3, stiffX: 1, stiffY: 1, springDamp: 0.01,
         windSpatial: 7.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.30,
-        collFric: 0.30, dragStr: 0.60, airExp: 0.05, maxVel: 0.45, velRet: 1.0
+        collFric: 0.3, dragStr: 0.6, airExp: 0.05, maxVel: 0.45, velRet: 1.0
     },
     flag: {
         // 旗帜布：轻、软、极爱飘，风一来就是波浪
-        stiffness: 0.34, maxStretch: 1.45, damping: 0.028, mass: 9.0, meshRes: 34, maxDrag: 0.9, iterations: 10, hz: 100,
-        plasticity: false, plRate: 0.02, plThreshold: 1.20, plRecovery: 0.006, plMax: 1.5,
-        bend: 0.09, shear: 0.70, stiffX: 1.00, stiffY: 1.00, springDamp: 0.015,
+        stiffness: 0.34, maxStretch: 1.45, damping: 0.03, mass: 9, meshRes: 30, maxDrag: 0.9, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.02, plThreshold: 1.2, plRecovery: 0.006, plMax: 1.5,
+        bend: 0.09, shear: 0.7, stiffX: 1, stiffY: 1, springDamp: 0.02,
         windSpatial: 5.6, windZ: 0.10, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.50,
-        collFric: 0.35, dragStr: 0.50, airExp: 0.12, maxVel: 0.40, velRet: 1.0
+        collFric: 0.35, dragStr: 0.5, airExp: 0.12, maxVel: 0.4, velRet: 1.0
     },
     spandex: {
         // 氨纶弹力布：能拉很长，松手"啪"地回弹，越拉越紧
-        stiffness: 0.32, maxStretch: 2.55, damping: 0.045, mass: 16.0, meshRes: 30, maxDrag: 1.8, iterations: 11, hz: 100,
-        plasticity: false, plRate: 0.001, plThreshold: 2.20, plRecovery: 0.030, plMax: 1.2,
-        bend: 0.06, shear: 0.45, stiffX: 1.00, stiffY: 1.00, springDamp: 0.08,
+        stiffness: 0.32, maxStretch: 2.55, damping: 0.045, mass: 16, meshRes: 30, maxDrag: 1.8, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0, plThreshold: 2, plRecovery: 0.03, plMax: 1.2,
+        bend: 0.06, shear: 0.45, stiffX: 1, stiffY: 1, springDamp: 0.08,
         windSpatial: 4.4, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.60,
-        collFric: 0.40, dragStr: 0.50, airExp: 0.14, maxVel: 0.34, velRet: 1.0
+        collFric: 0.4, dragStr: 0.5, airExp: 0.14, maxVel: 0.34, velRet: 1.0
     },
     sportmesh: {
         // 速干网眼：轻、有弹性、回弹快，抖动干脆
-        stiffness: 0.48, maxStretch: 1.55, damping: 0.050, mass: 12.0, meshRes: 30, maxDrag: 0.8, iterations: 9, hz: 100,
-        plasticity: false, plRate: 0.02, plThreshold: 1.18, plRecovery: 0.010, plMax: 1.4,
-        bend: 0.18, shear: 0.85, stiffX: 1.00, stiffY: 1.00, springDamp: 0.03,
+        stiffness: 0.48, maxStretch: 1.55, damping: 0.05, mass: 12, meshRes: 30, maxDrag: 0.8, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.02, plThreshold: 1.18, plRecovery: 0.01, plMax: 1.4,
+        bend: 0.18, shear: 0.85, stiffX: 1, stiffY: 1, springDamp: 0.03,
         windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.70,
         collFric: 0.45, dragStr: 0.45, airExp: 0.16, maxVel: 0.34, velRet: 1.0
     },
@@ -885,83 +911,83 @@ const physicsPresets = {
     // ==========================================================
     denim: {
         // 牛仔：沉、硬、拉扯阻力大，裤脚能立住
-        stiffness: 0.80, maxStretch: 1.10, damping: 0.125, mass: 75.0, meshRes: 30, maxDrag: 0.4, iterations: 10, hz: 110,
+        stiffness: 0.8, maxStretch: 1.1, damping: 0.125, mass: 75, meshRes: 30, maxDrag: 0.4, iterations: 9, hz: 110,
         plasticity: false, plRate: 0.03, plThreshold: 1.05, plRecovery: 0.002, plMax: 1.8,
-        bend: 0.55, shear: 1.30, stiffX: 1.20, stiffY: 1.10, springDamp: 0.06,
+        bend: 0.55, shear: 1.3, stiffX: 1.2, stiffY: 1.1, springDamp: 0.06,
         windSpatial: 4.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.90,
-        collFric: 0.70, dragStr: 0.30, airExp: 0.28, maxVel: 0.25, velRet: 1.0
+        collFric: 0.7, dragStr: 0.3, airExp: 0.28, maxVel: 0.25, velRet: 1.0
     },
     canvas: {
         // 帆布：最厚重的日常布料，像帐篷布
-        stiffness: 0.90, maxStretch: 1.05, damping: 0.120, mass: 100.0, meshRes: 32, maxDrag: 0.3, iterations: 10, hz: 110,
-        plasticity: false, plRate: 0.06, plThreshold: 1.03, plRecovery: 0.001, plMax: 2.0,
-        bend: 0.70, shear: 1.40, stiffX: 1.30, stiffY: 1.30, springDamp: 0.08,
+        stiffness: 0.9, maxStretch: 1.05, damping: 0.12, mass: 100, meshRes: 30, maxDrag: 0.3, iterations: 9, hz: 110,
+        plasticity: false, plRate: 0.06, plThreshold: 1.03, plRecovery: 0.001, plMax: 2,
+        bend: 0.7, shear: 1.4, stiffX: 1.3, stiffY: 1.3, springDamp: 0.08,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
-        collFric: 0.72, dragStr: 0.28, airExp: 0.30, maxVel: 0.22, velRet: 1.0
+        collFric: 0.72, dragStr: 0.28, airExp: 0.3, maxVel: 0.22, velRet: 1.0
     },
     vinyl_banner: {
         // 🖨 喷绘布：PVC 广告布，厚、硬、有一定"板感"，拉过头会留下永久形变
-        stiffness: 0.72, maxStretch: 1.12, damping: 0.135, mass: 90.0, meshRes: 30, maxDrag: 0.35, iterations: 10, hz: 110,
-        plasticity: true, plRate: 0.045, plThreshold: 1.08, plRecovery: 0.0008, plMax: 2.2,
-        bend: 0.55, shear: 1.35, stiffX: 1.25, stiffY: 1.20, springDamp: 0.08,
+        stiffness: 0.72, maxStretch: 1.12, damping: 0.135, mass: 90, meshRes: 30, maxDrag: 0.35, iterations: 9, hz: 110,
+        plasticity: true, plRate: 0.05, plThreshold: 1.08, plRecovery: 0.001, plMax: 2.2,
+        bend: 0.55, shear: 1.35, stiffX: 1.25, stiffY: 1.2, springDamp: 0.08,
         windSpatial: 4.2, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.90,
-        collFric: 0.72, dragStr: 0.30, airExp: 0.26, maxVel: 0.22, velRet: 1.0
+        collFric: 0.72, dragStr: 0.3, airExp: 0.26, maxVel: 0.22, velRet: 1.0
     },
     awning: {
         // 遮阳篷布：亚克力涂层布，硬挺、耐候、风里不太飘
-        stiffness: 0.74, maxStretch: 1.14, damping: 0.140, mass: 80.0, meshRes: 26, maxDrag: 0.3, iterations: 10, hz: 110,
+        stiffness: 0.74, maxStretch: 1.14, damping: 0.14, mass: 80, meshRes: 26, maxDrag: 0.3, iterations: 9, hz: 110,
         plasticity: false, plRate: 0.04, plThreshold: 1.05, plRecovery: 0.002, plMax: 1.8,
-        bend: 0.50, shear: 1.30, stiffX: 1.20, stiffY: 1.15, springDamp: 0.09,
+        bend: 0.5, shear: 1.3, stiffX: 1.2, stiffY: 1.15, springDamp: 0.09,
         windSpatial: 4.2, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.90,
         collFric: 0.75, dragStr: 0.28, airExp: 0.28, maxVel: 0.22, velRet: 1.0
     },
     burlap: {
         // 麻袋布：粗糙、沉、几乎不回弹，越拖越"涩"
-        stiffness: 0.82, maxStretch: 1.10, damping: 0.170, mass: 110.0, meshRes: 26, maxDrag: 0.3, iterations: 10, hz: 110,
-        plasticity: true, plRate: 0.08, plThreshold: 1.06, plRecovery: 0.0005, plMax: 2.0,
-        bend: 0.60, shear: 1.50, stiffX: 1.20, stiffY: 1.15, springDamp: 0.12,
+        stiffness: 0.82, maxStretch: 1.1, damping: 0.17, mass: 110, meshRes: 26, maxDrag: 0.3, iterations: 9, hz: 110,
+        plasticity: true, plRate: 0.08, plThreshold: 1.06, plRecovery: 0.001, plMax: 2,
+        bend: 0.6, shear: 1.5, stiffX: 1.2, stiffY: 1.15, springDamp: 0.12,
         windSpatial: 3.8, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
-        collFric: 0.90, dragStr: 0.25, airExp: 0.32, maxVel: 0.20, velRet: 1.0
+        collFric: 0.9, dragStr: 0.25, airExp: 0.32, maxVel: 0.2, velRet: 1.0
     },
     straw_mat: {
         // 草编席：硬、脆、几乎不弯，弯了会留折痕
-        stiffness: 0.95, maxStretch: 1.03, damping: 0.110, mass: 65.0, meshRes: 22, maxDrag: 0.2, iterations: 10, hz: 110,
-        plasticity: true, plRate: 0.03, plThreshold: 1.02, plRecovery: 0.0, plMax: 1.5,
-        bend: 0.90, shear: 1.90, stiffX: 1.25, stiffY: 1.25, springDamp: 0.10,
+        stiffness: 0.9, maxStretch: 1.03, damping: 0.11, mass: 65, meshRes: 22, maxDrag: 0.2, iterations: 9, hz: 110,
+        plasticity: true, plRate: 0.03, plThreshold: 1.02, plRecovery: 0, plMax: 1.5,
+        bend: 0.7, shear: 1.6, stiffX: 1.25, stiffY: 1.25, springDamp: 0.1,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.90,
-        collFric: 0.80, dragStr: 0.20, airExp: 0.30, maxVel: 0.20, velRet: 1.0
+        collFric: 0.8, dragStr: 0.2, airExp: 0.3, maxVel: 0.2, velRet: 1.0
     },
     leather: {
         // 皮革：重、韧、拉扯后不会完全回到原样
-        stiffness: 0.85, maxStretch: 1.15, damping: 0.155, mass: 90.0, meshRes: 30, maxDrag: 0.4, iterations: 10, hz: 110,
-        plasticity: true, plRate: 0.05, plThreshold: 1.10, plRecovery: 0.0005, plMax: 2.5,
-        bend: 0.60, shear: 1.40, stiffX: 1.30, stiffY: 1.30, springDamp: 0.10,
+        stiffness: 0.85, maxStretch: 1.15, damping: 0.155, mass: 90, meshRes: 30, maxDrag: 0.4, iterations: 9, hz: 110,
+        plasticity: true, plRate: 0.05, plThreshold: 1.1, plRecovery: 0.001, plMax: 2.5,
+        bend: 0.6, shear: 1.4, stiffX: 1.3, stiffY: 1.3, springDamp: 0.1,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.90,
-        collFric: 0.75, dragStr: 0.28, airExp: 0.30, maxVel: 0.25, velRet: 1.0
+        collFric: 0.75, dragStr: 0.28, airExp: 0.3, maxVel: 0.25, velRet: 1.0
     },
     suede: {
         // 麂皮：厚绒面，比皮革更软，形变留得住
-        stiffness: 0.78, maxStretch: 1.12, damping: 0.190, mass: 100.0, meshRes: 28, maxDrag: 0.35, iterations: 10, hz: 110,
-        plasticity: true, plRate: 0.06, plThreshold: 1.09, plRecovery: 0.0006, plMax: 2.4,
-        bend: 0.50, shear: 1.30, stiffX: 1.22, stiffY: 1.18, springDamp: 0.12,
+        stiffness: 0.78, maxStretch: 1.12, damping: 0.19, mass: 100, meshRes: 28, maxDrag: 0.35, iterations: 9, hz: 110,
+        plasticity: true, plRate: 0.06, plThreshold: 1.09, plRecovery: 0.001, plMax: 2.4,
+        bend: 0.5, shear: 1.3, stiffX: 1.2, stiffY: 1.2, springDamp: 0.12,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.93,
-        collFric: 0.80, dragStr: 0.26, airExp: 0.32, maxVel: 0.22, velRet: 1.0
+        collFric: 0.8, dragStr: 0.26, airExp: 0.32, maxVel: 0.22, velRet: 1.0
     },
     metal: {
         // 金属丝网：重且硬，网格之间会"较劲"
-        stiffness: 0.95, maxStretch: 1.10, damping: 0.200, mass: 120.0, meshRes: 28, maxDrag: 0.2, iterations: 10, hz: 120,
-        plasticity: true, plRate: 0.05, plThreshold: 1.10, plRecovery: 0.001, plMax: 1.5,
-        bend: 0.65, shear: 1.60, stiffX: 1.20, stiffY: 1.20, springDamp: 0.15,
+        stiffness: 0.9, maxStretch: 1.1, damping: 0.2, mass: 120, meshRes: 28, maxDrag: 0.2, iterations: 9, hz: 110,
+        plasticity: true, plRate: 0.05, plThreshold: 1.1, plRecovery: 0.001, plMax: 1.5,
+        bend: 0.65, shear: 1.6, stiffX: 1.2, stiffY: 1.2, springDamp: 0.15,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
-        collFric: 0.80, dragStr: 0.25, airExp: 0.35, maxVel: 0.20, velRet: 1.0
+        collFric: 0.8, dragStr: 0.25, airExp: 0.35, maxVel: 0.2, velRet: 1.0
     },
     metalsheet: {
         // 铁皮：极重、几乎不可拉伸，砸下去"哐"一声
-        stiffness: 1.00, maxStretch: 1.04, damping: 0.250, mass: 150.0, meshRes: 20, maxDrag: 0.2, iterations: 12, hz: 120,
-        plasticity: true, plRate: 0.03, plThreshold: 1.06, plRecovery: 0.0, plMax: 2.5,
-        bend: 0.80, shear: 1.80, stiffX: 1.35, stiffY: 1.35, springDamp: 0.20,
+        stiffness: 0.9, maxStretch: 1.04, damping: 0.22, mass: 120, meshRes: 20, maxDrag: 0.2, iterations: 9, hz: 110,
+        plasticity: true, plRate: 0.03, plThreshold: 1.06, plRecovery: 0, plMax: 2.5,
+        bend: 0.7, shear: 1.6, stiffX: 1.35, stiffY: 1.35, springDamp: 0.2,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
-        collFric: 0.80, dragStr: 0.22, airExp: 0.35, maxVel: 0.18, velRet: 1.0
+        collFric: 0.8, dragStr: 0.22, airExp: 0.35, maxVel: 0.18, velRet: 1.0
     },
 
     // ==========================================================
@@ -969,228 +995,228 @@ const physicsPresets = {
     // ==========================================================
     rubber: {
         // 橡胶：重，但能拉长好几倍，回弹"嗡"地一下
-        stiffness: 0.20, maxStretch: 2.80, damping: 0.080, mass: 60.0, meshRes: 24, maxDrag: 2.0, iterations: 12, hz: 110,
-        plasticity: false, plRate: 0.001, plThreshold: 2.50, plRecovery: 0.050, plMax: 1.1,
-        bend: 0.10, shear: 0.40, stiffX: 1.00, stiffY: 1.00, springDamp: 0.15,
+        stiffness: 0.2, maxStretch: 2.8, damping: 0.08, mass: 60, meshRes: 24, maxDrag: 2.0, iterations: 9, hz: 110,
+        plasticity: false, plRate: 0, plThreshold: 2, plRecovery: 0.05, plMax: 1.1,
+        bend: 0.1, shear: 0.4, stiffX: 1, stiffY: 1, springDamp: 0.15,
         windSpatial: 3.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.80,
-        collFric: 0.50, dragStr: 0.50, airExp: 0.15, maxVel: 0.40, velRet: 1.0
+        collFric: 0.5, dragStr: 0.5, airExp: 0.15, maxVel: 0.4, velRet: 1.0
     },
     silicone: {
         // 硅胶布：又重又有肉感，按下去会陷、会回
-        stiffness: 0.90, maxStretch: 1.10, damping: 0.180, mass: 110.0, meshRes: 28, maxDrag: 1.2, iterations: 10, hz: 110,
-        plasticity: false, plRate: 0.001, plThreshold: 2.00, plRecovery: 0.040, plMax: 1.2,
-        bend: 0.25, shear: 0.60, stiffX: 1.00, stiffY: 1.00, springDamp: 0.20,
+        stiffness: 0.9, maxStretch: 1.1, damping: 0.18, mass: 110, meshRes: 28, maxDrag: 1.2, iterations: 9, hz: 110,
+        plasticity: false, plRate: 0, plThreshold: 2, plRecovery: 0.04, plMax: 1.2,
+        bend: 0.25, shear: 0.6, stiffX: 1, stiffY: 1, springDamp: 0.2,
         windSpatial: 3.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.80,
         collFric: 0.55, dragStr: 0.45, airExp: 0.25, maxVel: 0.22, velRet: 1.0
     },
     neoprene: {
         // 潜水料：厚、弹、有支撑，弯下去会自己顶回来
-        stiffness: 0.45, maxStretch: 1.80, damping: 0.120, mass: 70.0, meshRes: 24, maxDrag: 1.0, iterations: 10, hz: 100,
-        plasticity: false, plRate: 0.02, plThreshold: 1.50, plRecovery: 0.020, plMax: 1.5,
-        bend: 0.50, shear: 0.80, stiffX: 1.00, stiffY: 1.00, springDamp: 0.15,
+        stiffness: 0.45, maxStretch: 1.8, damping: 0.12, mass: 70, meshRes: 24, maxDrag: 1.0, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.02, plThreshold: 1.5, plRecovery: 0.02, plMax: 1.5,
+        bend: 0.5, shear: 0.8, stiffX: 1, stiffY: 1, springDamp: 0.15,
         windSpatial: 3.5, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.80,
-        collFric: 0.60, dragStr: 0.45, airExp: 0.22, maxVel: 0.28, velRet: 1.0
+        collFric: 0.6, dragStr: 0.45, airExp: 0.22, maxVel: 0.28, velRet: 1.0
     },
     jelly: {
         // 果冻：重、滑、duang duang 地晃，一碰就颤
-        stiffness: 0.15, maxStretch: 2.50, damping: 0.050, mass: 100.0, meshRes: 24, maxDrag: 2.5, iterations: 15, hz: 120,
-        plasticity: false, plRate: 0.001, plThreshold: 2.50, plRecovery: 0.060, plMax: 1.1,
-        bend: 0.05, shear: 0.20, stiffX: 1.00, stiffY: 1.00, springDamp: 0.15,
+        stiffness: 0.15, maxStretch: 2.5, damping: 0.05, mass: 100, meshRes: 24, maxDrag: 2.5, iterations: 9, hz: 110,
+        plasticity: false, plRate: 0, plThreshold: 2, plRecovery: 0.05, plMax: 1.1,
+        bend: 0.05, shear: 0.3, stiffX: 1, stiffY: 1, springDamp: 0.15,
         windSpatial: 3.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.50,
-        collFric: 0.45, dragStr: 0.55, airExp: 0.10, maxVel: 0.35, velRet: 1.0
+        collFric: 0.45, dragStr: 0.55, airExp: 0.1, maxVel: 0.35, velRet: 1.0
     },
     foam: {
         // EVA 泡棉：极轻、不拉伸、弯不塌，捏一下有气孔感
-        stiffness: 0.88, maxStretch: 1.04, damping: 0.090, mass: 10.0, meshRes: 24, maxDrag: 0.5, iterations: 9, hz: 100,
-        plasticity: true, plRate: 0.16, plThreshold: 1.02, plRecovery: 0.002, plMax: 2.0,
-        bend: 0.82, shear: 1.80, stiffX: 1.10, stiffY: 1.10, springDamp: 0.14,
+        stiffness: 0.88, maxStretch: 1.04, damping: 0.09, mass: 10, meshRes: 24, maxDrag: 0.5, iterations: 9, hz: 100,
+        plasticity: true, plRate: 0.16, plThreshold: 1.02, plRecovery: 0.002, plMax: 2,
+        bend: 0.7, shear: 1.6, stiffX: 1.1, stiffY: 1.1, springDamp: 0.14,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.70,
-        collFric: 0.60, dragStr: 0.35, airExp: 0.18, maxVel: 0.24, velRet: 1.0
+        collFric: 0.6, dragStr: 0.35, airExp: 0.18, maxVel: 0.24, velRet: 1.0
     },
     paper: {
         // 纸张：轻、脆、一搓就皱，皱痕几乎不可逆
-        stiffness: 0.70, maxStretch: 1.03, damping: 0.110, mass: 6.0, meshRes: 16, maxDrag: 0.2, iterations: 6, hz: 80,
-        plasticity: true, plRate: 0.25, plThreshold: 1.01, plRecovery: 0.0, plMax: 2.0,
-        bend: 0.85, shear: 2.00, stiffX: 1.30, stiffY: 1.00, springDamp: 0.10,
+        stiffness: 0.7, maxStretch: 1.03, damping: 0.11, mass: 6, meshRes: 16, maxDrag: 0.2, iterations: 6, hz: 80,
+        plasticity: true, plRate: 0.25, plThreshold: 1.01, plRecovery: 0, plMax: 2,
+        bend: 0.7, shear: 1.6, stiffX: 1.3, stiffY: 1, springDamp: 0.1,
         windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.70,
-        collFric: 0.50, dragStr: 0.30, airExp: 0.15, maxVel: 0.25, velRet: 1.0
+        collFric: 0.5, dragStr: 0.3, airExp: 0.15, maxVel: 0.25, velRet: 1.0
     },
     plastic: {
         // 塑料薄膜：极轻、微弹、噼里啪啦地飘
-        stiffness: 0.40, maxStretch: 1.60, damping: 0.020, mass: 8.0, meshRes: 28, maxDrag: 1.5, iterations: 10, hz: 100,
-        plasticity: true, plRate: 0.12, plThreshold: 1.10, plRecovery: 0.001, plMax: 3.0,
-        bend: 0.15, shear: 0.40, stiffX: 1.00, stiffY: 1.00, springDamp: 0.02,
+        stiffness: 0.4, maxStretch: 1.6, damping: 0.02, mass: 8, meshRes: 28, maxDrag: 1.5, iterations: 9, hz: 100,
+        plasticity: true, plRate: 0.12, plThreshold: 1.1, plRecovery: 0.001, plMax: 2.5,
+        bend: 0.15, shear: 0.4, stiffX: 1, stiffY: 1, springDamp: 0.02,
         windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.60,
-        collFric: 0.40, dragStr: 0.50, airExp: 0.12, maxVel: 0.35, velRet: 1.0
+        collFric: 0.4, dragStr: 0.5, airExp: 0.12, maxVel: 0.35, velRet: 1.0
     },
     bubble_wrap: {
         // 气泡膜：轻、脆、一按一个坑，坑会记住
-        stiffness: 0.52, maxStretch: 1.28, damping: 0.090, mass: 7.0, meshRes: 28, maxDrag: 0.8, iterations: 9, hz: 100,
-        plasticity: true, plRate: 0.20, plThreshold: 1.04, plRecovery: 0.0, plMax: 2.6,
-        bend: 0.30, shear: 1.10, stiffX: 1.00, stiffY: 1.00, springDamp: 0.03,
+        stiffness: 0.52, maxStretch: 1.28, damping: 0.09, mass: 7, meshRes: 28, maxDrag: 0.8, iterations: 9, hz: 100,
+        plasticity: true, plRate: 0.2, plThreshold: 1.04, plRecovery: 0, plMax: 2.5,
+        bend: 0.3, shear: 1.1, stiffX: 1, stiffY: 1, springDamp: 0.03,
         windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.60,
-        collFric: 0.45, dragStr: 0.40, airExp: 0.12, maxVel: 0.30, velRet: 1.0
+        collFric: 0.45, dragStr: 0.4, airExp: 0.12, maxVel: 0.3, velRet: 1.0
     },
     clingfilm: {
         // 保鲜膜：轻、极滑、自己粘自己（自碰撞摩擦拉满）
-        stiffness: 0.62, maxStretch: 2.10, damping: 0.045, mass: 4.0, meshRes: 30, maxDrag: 1.8, iterations: 12, hz: 110,
-        plasticity: false, plRate: 0.03, plThreshold: 1.80, plRecovery: 0.005, plMax: 2.0,
-        bend: 0.10, shear: 0.50, stiffX: 1.00, stiffY: 1.00, springDamp: 0.03,
+        stiffness: 0.62, maxStretch: 2.1, damping: 0.045, mass: 4, meshRes: 30, maxDrag: 1.8, iterations: 9, hz: 110,
+        plasticity: false, plRate: 0.03, plThreshold: 1.8, plRecovery: 0.005, plMax: 2,
+        bend: 0.1, shear: 0.5, stiffX: 1, stiffY: 1, springDamp: 0.03,
         windSpatial: 6.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
-        collFric: 0.95, dragStr: 0.50, airExp: 0.10, maxVel: 0.30, velRet: 1.0
+        collFric: 0.95, dragStr: 0.5, airExp: 0.1, maxVel: 0.3, velRet: 1.0
     },
     // ==========================================================
     // 与新增 PBR 法线贴图配套的面料
     // ==========================================================
     oxford: {
         // 涂层牛津布：厚实平纹 + PU 涂层，挺而不僵
-        stiffness: 0.68, maxStretch: 1.18, damping: 0.100, mass: 55.0, meshRes: 28, maxDrag: 0.4, iterations: 9, hz: 100,
+        stiffness: 0.68, maxStretch: 1.18, damping: 0.1, mass: 55, meshRes: 28, maxDrag: 0.4, iterations: 9, hz: 100,
         plasticity: false, plRate: 0.04, plThreshold: 1.06, plRecovery: 0.002, plMax: 1.8,
-        bend: 0.45, shear: 1.25, stiffX: 1.15, stiffY: 1.10, springDamp: 0.05,
+        bend: 0.45, shear: 1.25, stiffX: 1.15, stiffY: 1.1, springDamp: 0.05,
         windSpatial: 4.2, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.88,
-        collFric: 0.70, dragStr: 0.34, airExp: 0.26, maxVel: 0.24, velRet: 1.0
+        collFric: 0.7, dragStr: 0.34, airExp: 0.26, maxVel: 0.24, velRet: 1.0
     },
     duck_canvas: {
         // 防水帆布：蜡感涂层，比普通帆布更硬更沉
-        stiffness: 0.92, maxStretch: 1.06, damping: 0.150, mass: 120.0, meshRes: 26, maxDrag: 0.3, iterations: 10, hz: 110,
+        stiffness: 0.9, maxStretch: 1.06, damping: 0.15, mass: 120, meshRes: 26, maxDrag: 0.3, iterations: 9, hz: 110,
         plasticity: false, plRate: 0.03, plThreshold: 1.03, plRecovery: 0.001, plMax: 1.6,
-        bend: 0.72, shear: 1.50, stiffX: 1.30, stiffY: 1.30, springDamp: 0.10,
+        bend: 0.7, shear: 1.5, stiffX: 1.3, stiffY: 1.3, springDamp: 0.1,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
-        collFric: 0.78, dragStr: 0.26, airExp: 0.32, maxVel: 0.20, velRet: 1.0
+        collFric: 0.78, dragStr: 0.26, airExp: 0.32, maxVel: 0.2, velRet: 1.0
     },
     sateen: {
         // 贡缎：棉缎光泽面，滑、垂、几乎不留褶
-        stiffness: 0.45, maxStretch: 1.32, damping: 0.060, mass: 50.0, meshRes: 32, maxDrag: 0.7, iterations: 10, hz: 100,
+        stiffness: 0.45, maxStretch: 1.32, damping: 0.06, mass: 50, meshRes: 30, maxDrag: 0.7, iterations: 9, hz: 100,
         plasticity: false, plRate: 0.03, plThreshold: 1.12, plRecovery: 0.005, plMax: 1.6,
-        bend: 0.10, shear: 0.80, stiffX: 1.00, stiffY: 1.00, springDamp: 0.02,
+        bend: 0.1, shear: 0.8, stiffX: 1, stiffY: 1, springDamp: 0.02,
         windSpatial: 4.6, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.60,
-        collFric: 0.45, dragStr: 0.48, airExp: 0.18, maxVel: 0.30, velRet: 1.0
+        collFric: 0.45, dragStr: 0.48, airExp: 0.18, maxVel: 0.3, velRet: 1.0
     },
     jersey: {
         // 平针针织：软、弹、贴手，拉扯后形变会留一点
-        stiffness: 0.40, maxStretch: 1.45, damping: 0.070, mass: 35.0, meshRes: 30, maxDrag: 0.7, iterations: 10, hz: 100,
+        stiffness: 0.4, maxStretch: 1.45, damping: 0.07, mass: 35, meshRes: 30, maxDrag: 0.7, iterations: 9, hz: 100,
         plasticity: true, plRate: 0.07, plThreshold: 1.05, plRecovery: 0.004, plMax: 1.7,
-        bend: 0.12, shear: 0.75, stiffX: 1.00, stiffY: 0.95, springDamp: 0.03,
+        bend: 0.12, shear: 0.75, stiffX: 1, stiffY: 0.95, springDamp: 0.03,
         windSpatial: 4.8, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.70,
-        collFric: 0.55, dragStr: 0.46, airExp: 0.20, maxVel: 0.32, velRet: 1.0
+        collFric: 0.55, dragStr: 0.46, airExp: 0.2, maxVel: 0.32, velRet: 1.0
     },
     rib_knit: {
         // 罗纹针织：竖向条纹，横向弹性大、纵向挺
-        stiffness: 0.50, maxStretch: 1.35, damping: 0.080, mass: 40.0, meshRes: 30, maxDrag: 0.6, iterations: 9, hz: 100,
+        stiffness: 0.5, maxStretch: 1.35, damping: 0.08, mass: 40, meshRes: 30, maxDrag: 0.6, iterations: 9, hz: 100,
         plasticity: false, plRate: 0.05, plThreshold: 1.08, plRecovery: 0.004, plMax: 1.6,
-        bend: 0.25, shear: 0.90, stiffX: 1.20, stiffY: 0.90, springDamp: 0.04,
+        bend: 0.25, shear: 0.9, stiffX: 1.2, stiffY: 0.9, springDamp: 0.04,
         windSpatial: 4.4, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.75,
-        collFric: 0.60, dragStr: 0.42, airExp: 0.22, maxVel: 0.28, velRet: 1.0
+        collFric: 0.6, dragStr: 0.42, airExp: 0.22, maxVel: 0.28, velRet: 1.0
     },
     plisse: {
         // 百褶布：折痕处很硬，压下去会自己立住
-        stiffness: 0.75, maxStretch: 1.08, damping: 0.080, mass: 40.0, meshRes: 30, maxDrag: 0.4, iterations: 10, hz: 100,
-        plasticity: true, plRate: 0.04, plThreshold: 1.04, plRecovery: 0.0, plMax: 1.8,
-        bend: 0.80, shear: 1.60, stiffX: 1.15, stiffY: 1.00, springDamp: 0.06,
+        stiffness: 0.75, maxStretch: 1.08, damping: 0.08, mass: 40, meshRes: 30, maxDrag: 0.4, iterations: 9, hz: 100,
+        plasticity: true, plRate: 0.04, plThreshold: 1.04, plRecovery: 0, plMax: 1.8,
+        bend: 0.7, shear: 1.6, stiffX: 1.15, stiffY: 1, springDamp: 0.06,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.85,
-        collFric: 0.68, dragStr: 0.30, airExp: 0.24, maxVel: 0.24, velRet: 1.0
+        collFric: 0.68, dragStr: 0.3, airExp: 0.24, maxVel: 0.24, velRet: 1.0
     },
     tweed: {
         // 粗花呢：粗、硬、重，几乎不随风摆
-        stiffness: 0.72, maxStretch: 1.12, damping: 0.170, mass: 95.0, meshRes: 28, maxDrag: 0.4, iterations: 9, hz: 100,
-        plasticity: false, plRate: 0.04, plThreshold: 1.05, plRecovery: 0.0015, plMax: 1.7,
-        bend: 0.55, shear: 1.35, stiffX: 1.10, stiffY: 1.10, springDamp: 0.09,
+        stiffness: 0.72, maxStretch: 1.12, damping: 0.17, mass: 95, meshRes: 28, maxDrag: 0.4, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.04, plThreshold: 1.05, plRecovery: 0.002, plMax: 1.7,
+        bend: 0.55, shear: 1.35, stiffX: 1.1, stiffY: 1.1, springDamp: 0.09,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.92,
-        collFric: 0.80, dragStr: 0.28, airExp: 0.30, maxVel: 0.22, velRet: 1.0
+        collFric: 0.8, dragStr: 0.28, airExp: 0.3, maxVel: 0.22, velRet: 1.0
     },
     bamboo_mat: {
         // 竹席：硬、脆，弯折会留下痕迹
-        stiffness: 0.95, maxStretch: 1.03, damping: 0.120, mass: 70.0, meshRes: 24, maxDrag: 0.2, iterations: 10, hz: 110,
-        plasticity: true, plRate: 0.03, plThreshold: 1.02, plRecovery: 0.0, plMax: 1.5,
-        bend: 0.90, shear: 1.90, stiffX: 1.30, stiffY: 1.30, springDamp: 0.10,
+        stiffness: 0.9, maxStretch: 1.03, damping: 0.12, mass: 70, meshRes: 24, maxDrag: 0.2, iterations: 9, hz: 110,
+        plasticity: true, plRate: 0.03, plThreshold: 1.02, plRecovery: 0, plMax: 1.5,
+        bend: 0.7, shear: 1.6, stiffX: 1.3, stiffY: 1.3, springDamp: 0.1,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.90,
-        collFric: 0.80, dragStr: 0.22, airExp: 0.30, maxVel: 0.20, velRet: 1.0
+        collFric: 0.8, dragStr: 0.22, airExp: 0.3, maxVel: 0.2, velRet: 1.0
     },
     tinfoil: {
         // 锡箔：极轻、脆、一揉全是细褶，且回不去
-        stiffness: 0.60, maxStretch: 1.15, damping: 0.050, mass: 4.0, meshRes: 26, maxDrag: 0.5, iterations: 9, hz: 100,
-        plasticity: true, plRate: 0.30, plThreshold: 1.01, plRecovery: 0.0, plMax: 2.4,
-        bend: 0.35, shear: 0.90, stiffX: 1.00, stiffY: 1.00, springDamp: 0.03,
+        stiffness: 0.6, maxStretch: 1.15, damping: 0.05, mass: 4, meshRes: 26, maxDrag: 0.5, iterations: 9, hz: 100,
+        plasticity: true, plRate: 0.3, plThreshold: 1.01, plRecovery: 0, plMax: 2.4,
+        bend: 0.35, shear: 0.9, stiffX: 1, stiffY: 1, springDamp: 0.03,
         windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.60,
-        collFric: 0.40, dragStr: 0.50, airExp: 0.10, maxVel: 0.30, velRet: 1.0
+        collFric: 0.4, dragStr: 0.5, airExp: 0.1, maxVel: 0.3, velRet: 1.0
     },
     cork: {
         // 软木：厚、弹不起多少，弯折就裂
-        stiffness: 0.85, maxStretch: 1.05, damping: 0.200, mass: 45.0, meshRes: 24, maxDrag: 0.3, iterations: 9, hz: 100,
-        plasticity: true, plRate: 0.10, plThreshold: 1.02, plRecovery: 0.001, plMax: 1.6,
-        bend: 0.70, shear: 1.60, stiffX: 1.20, stiffY: 1.20, springDamp: 0.12,
+        stiffness: 0.85, maxStretch: 1.05, damping: 0.2, mass: 45, meshRes: 24, maxDrag: 0.3, iterations: 9, hz: 100,
+        plasticity: true, plRate: 0.1, plThreshold: 1.02, plRecovery: 0.001, plMax: 1.6,
+        bend: 0.7, shear: 1.6, stiffX: 1.2, stiffY: 1.2, springDamp: 0.12,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.95,
-        collFric: 0.85, dragStr: 0.24, airExp: 0.30, maxVel: 0.18, velRet: 1.0
+        collFric: 0.85, dragStr: 0.24, airExp: 0.3, maxVel: 0.18, velRet: 1.0
     },
     devore: {
         // 烧花绒：绒面被烧出花纹，轻、软、半透
-        stiffness: 0.35, maxStretch: 1.50, damping: 0.060, mass: 18.0, meshRes: 32, maxDrag: 0.9, iterations: 10, hz: 100,
+        stiffness: 0.35, maxStretch: 1.5, damping: 0.06, mass: 18, meshRes: 30, maxDrag: 0.9, iterations: 9, hz: 100,
         plasticity: false, plRate: 0.03, plThreshold: 1.15, plRecovery: 0.006, plMax: 1.5,
-        bend: 0.06, shear: 0.60, stiffX: 1.00, stiffY: 1.00, springDamp: 0.02,
+        bend: 0.06, shear: 0.6, stiffX: 1, stiffY: 1, springDamp: 0.02,
         windSpatial: 5.2, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.55,
-        collFric: 0.42, dragStr: 0.50, airExp: 0.15, maxVel: 0.32, velRet: 1.0
+        collFric: 0.42, dragStr: 0.5, airExp: 0.15, maxVel: 0.32, velRet: 1.0
     },
     perforated: {
         // 打孔膜：有孔洞的硬质薄膜，拉伸时会从孔边起皱
-        stiffness: 0.80, maxStretch: 1.12, damping: 0.070, mass: 35.0, meshRes: 30, maxDrag: 0.5, iterations: 10, hz: 100,
+        stiffness: 0.8, maxStretch: 1.12, damping: 0.07, mass: 35, meshRes: 30, maxDrag: 0.5, iterations: 9, hz: 100,
         plasticity: true, plRate: 0.08, plThreshold: 1.06, plRecovery: 0.002, plMax: 1.8,
-        bend: 0.60, shear: 1.50, stiffX: 1.20, stiffY: 1.20, springDamp: 0.05,
+        bend: 0.6, shear: 1.5, stiffX: 1.2, stiffY: 1.2, springDamp: 0.05,
         windSpatial: 4.4, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.85,
-        collFric: 0.65, dragStr: 0.32, airExp: 0.20, maxVel: 0.26, velRet: 1.0
+        collFric: 0.65, dragStr: 0.32, airExp: 0.2, maxVel: 0.26, velRet: 1.0
     },
     mesh_banner: {
         // 网格喷绘布：粗织网格，轻、韧、透一点风
-        stiffness: 0.65, maxStretch: 1.30, damping: 0.080, mass: 30.0, meshRes: 28, maxDrag: 0.6, iterations: 10, hz: 100,
-        plasticity: false, plRate: 0.03, plThreshold: 1.10, plRecovery: 0.004, plMax: 1.6,
-        bend: 0.30, shear: 1.20, stiffX: 1.10, stiffY: 1.05, springDamp: 0.04,
+        stiffness: 0.65, maxStretch: 1.3, damping: 0.08, mass: 30, meshRes: 28, maxDrag: 0.6, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.03, plThreshold: 1.1, plRecovery: 0.004, plMax: 1.6,
+        bend: 0.3, shear: 1.2, stiffX: 1.1, stiffY: 1.05, springDamp: 0.04,
         windSpatial: 4.6, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.80,
-        collFric: 0.60, dragStr: 0.40, airExp: 0.18, maxVel: 0.28, velRet: 1.0
+        collFric: 0.6, dragStr: 0.4, airExp: 0.18, maxVel: 0.28, velRet: 1.0
     },
     habotai: {
         // 电力纺：极薄的平纹真丝，垂坠如水
-        stiffness: 0.30, maxStretch: 1.48, damping: 0.030, mass: 6.0, meshRes: 34, maxDrag: 1.0, iterations: 10, hz: 100,
+        stiffness: 0.3, maxStretch: 1.48, damping: 0.03, mass: 6, meshRes: 30, maxDrag: 1.0, iterations: 9, hz: 100,
         plasticity: false, plRate: 0.02, plThreshold: 1.18, plRecovery: 0.008, plMax: 1.4,
-        bend: 0.04, shear: 0.55, stiffX: 1.00, stiffY: 1.00, springDamp: 0.01,
+        bend: 0.04, shear: 0.55, stiffX: 1, stiffY: 1, springDamp: 0.01,
         windSpatial: 5.4, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.45,
         collFric: 0.35, dragStr: 0.52, airExp: 0.12, maxVel: 0.36, velRet: 1.0
     },
     fishnet: {
         // 渔网：大网眼 + 高弹性，一拉一整片变形
-        stiffness: 0.38, maxStretch: 1.90, damping: 0.035, mass: 6.0, meshRes: 28, maxDrag: 1.2, iterations: 11, hz: 100,
-        plasticity: false, plRate: 0.01, plThreshold: 1.40, plRecovery: 0.020, plMax: 1.4,
-        bend: 0.10, shear: 0.50, stiffX: 1.00, stiffY: 1.00, springDamp: 0.03,
+        stiffness: 0.38, maxStretch: 1.9, damping: 0.035, mass: 6, meshRes: 28, maxDrag: 1.2, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.01, plThreshold: 1.4, plRecovery: 0.02, plMax: 1.4,
+        bend: 0.1, shear: 0.5, stiffX: 1, stiffY: 1, springDamp: 0.03,
         windSpatial: 6.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.55,
         collFric: 0.35, dragStr: 0.55, airExp: 0.12, maxVel: 0.36, velRet: 1.0
     },
     glitter_seqn: {
         // 亮片布：亮片面硬、重，弯折时有"颗粒感"
-        stiffness: 0.78, maxStretch: 1.10, damping: 0.150, mass: 85.0, meshRes: 26, maxDrag: 0.35, iterations: 10, hz: 110,
+        stiffness: 0.78, maxStretch: 1.1, damping: 0.15, mass: 85, meshRes: 26, maxDrag: 0.35, iterations: 9, hz: 110,
         plasticity: false, plRate: 0.03, plThreshold: 1.04, plRecovery: 0.001, plMax: 1.5,
-        bend: 0.60, shear: 1.50, stiffX: 1.15, stiffY: 1.15, springDamp: 0.10,
+        bend: 0.6, shear: 1.5, stiffX: 1.15, stiffY: 1.15, springDamp: 0.1,
         windSpatial: 4.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.90,
-        collFric: 0.78, dragStr: 0.26, airExp: 0.28, maxVel: 0.20, velRet: 1.0
+        collFric: 0.78, dragStr: 0.26, airExp: 0.28, maxVel: 0.2, velRet: 1.0
     },
     fleece: {
         // 抓绒：轻、蓬、阻尼大，抖起来像一团棉花
-        stiffness: 0.40, maxStretch: 1.40, damping: 0.160, mass: 30.0, meshRes: 28, maxDrag: 0.6, iterations: 9, hz: 100,
+        stiffness: 0.4, maxStretch: 1.4, damping: 0.16, mass: 30, meshRes: 28, maxDrag: 0.6, iterations: 9, hz: 100,
         plasticity: false, plRate: 0.05, plThreshold: 1.06, plRecovery: 0.003, plMax: 1.8,
-        bend: 0.18, shear: 0.85, stiffX: 1.00, stiffY: 1.00, springDamp: 0.06,
+        bend: 0.18, shear: 0.85, stiffX: 1, stiffY: 1, springDamp: 0.06,
         windSpatial: 4.2, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.88,
-        collFric: 0.82, dragStr: 0.38, airExp: 0.30, maxVel: 0.24, velRet: 1.0
+        collFric: 0.82, dragStr: 0.38, airExp: 0.3, maxVel: 0.24, velRet: 1.0
     },
     hook: {
         // 钩编：镂空、有弹性，网眼间会互相拉扯
-        stiffness: 0.50, maxStretch: 1.55, damping: 0.060, mass: 20.0, meshRes: 28, maxDrag: 1.0, iterations: 10, hz: 100,
-        plasticity: false, plRate: 0.03, plThreshold: 1.20, plRecovery: 0.008, plMax: 1.5,
-        bend: 0.12, shear: 0.70, stiffX: 1.00, stiffY: 1.00, springDamp: 0.03,
+        stiffness: 0.5, maxStretch: 1.55, damping: 0.06, mass: 20, meshRes: 28, maxDrag: 1.0, iterations: 9, hz: 100,
+        plasticity: false, plRate: 0.03, plThreshold: 1.2, plRecovery: 0.008, plMax: 1.5,
+        bend: 0.12, shear: 0.7, stiffX: 1, stiffY: 1, springDamp: 0.03,
         windSpatial: 5.0, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.60,
-        collFric: 0.42, dragStr: 0.50, airExp: 0.15, maxVel: 0.32, velRet: 1.0
+        collFric: 0.42, dragStr: 0.5, airExp: 0.15, maxVel: 0.32, velRet: 1.0
     },
     cable_knit: {
         // 绞花针织：厚、密、抗弯强，抖起来是一整片
-        stiffness: 0.62, maxStretch: 1.25, damping: 0.130, mass: 60.0, meshRes: 30, maxDrag: 0.6, iterations: 10, hz: 100,
+        stiffness: 0.62, maxStretch: 1.25, damping: 0.13, mass: 60, meshRes: 30, maxDrag: 0.6, iterations: 9, hz: 100,
         plasticity: false, plRate: 0.04, plThreshold: 1.07, plRecovery: 0.003, plMax: 1.7,
-        bend: 0.55, shear: 1.10, stiffX: 1.10, stiffY: 1.10, springDamp: 0.07,
+        bend: 0.55, shear: 1.1, stiffX: 1.1, stiffY: 1.1, springDamp: 0.07,
         windSpatial: 4.2, windZ: 0.0, gravAngle: 0, ground: true, groundY: -1.5, groundFric: 0.88,
         collFric: 0.72, dragStr: 0.34, airExp: 0.25, maxVel: 0.24, velRet: 1.0
     }
@@ -1417,7 +1443,13 @@ const collisionQualitySelect = document.getElementById("collisionQuality");
 const toggleSleepGuard = document.getElementById("toggleSleepGuard");
 const toggleAutoRescue = document.getElementById("toggleAutoRescue");
 // 🫨 抖一抖：短促随机冲量，用来解开缠住/穿模的状态
+// ⚠️ 这三个滑块引用必须先声明再取元素：script.js 是模块，let 有暂时性死区（TDZ），
+//    先赋值后声明会直接抛 "Cannot access 'shakeAmpSlider' before initialization"。
+let shakeAmpSlider = null, shakeFramesSlider = null, shapeScaleSlider = null;
 const btnShake = document.getElementById("btnShake");
+shakeAmpSlider = document.getElementById("shakeAmp");
+shakeFramesSlider = document.getElementById("shakeFrames");
+shapeScaleSlider = document.getElementById("shapeScale");
 // 🩺 拓扑自检按钮
 const btnSelfCheck = document.getElementById("btnSelfCheck");
 const toggleOutline = document.getElementById("toggleOutline");
@@ -1507,17 +1539,32 @@ pauseBtn.onclick = () => {
 // 制造一次"甩一甩"的冲击，帮已经把两层缠住的布料跳出局部极小。
 // 比手动拉扯省事，而且冲量是零均值的，不会破坏已有的褶皱走向。
 let shakeFramesLeft = 0;
+// 形状缩放因子（0 = 原始尺寸；负数收紧、正数松弛）
+let shapeFactor = 0;
 
 function shakeCloth() {
     if (!cloth || !cloth.particles || !cloth.particles.length) return;
     if (!isSimulating) pauseBtn.click();     // 暂停状态下先恢复解算，否则抖了也不动
     cloth.wake();
-    shakeFramesLeft = 8;
+    shakeFramesLeft = readShakeFrames();
+}
+
+/** 读"抖动时长"滑块（1~120 帧） */
+function readShakeFrames() {
+    const v = shakeFramesSlider ? parseInt(shakeFramesSlider.value) : 8;
+    return Number.isFinite(v) ? Math.max(1, Math.min(120, v)) : 8;
+}
+
+/** 读"抖动力度"滑块（0~20 倍格距） */
+function readShakeAmp() {
+    const v = shakeAmpSlider ? parseFloat(shakeAmpSlider.value) : 1.1;
+    return Number.isFinite(v) ? Math.max(0, Math.min(20, v)) : 1.1;
 }
 
 function applyShakeImpulse() {
     if (!cloth || !cloth.particles || !cloth.particles.length) { shakeFramesLeft = 0; return; }
-    const amp = (cloth.baseRestLength || 0.03) * 1.1;
+    const amp = (cloth.baseRestLength || 0.03) * readShakeAmp();
+    if (amp <= 0) { shakeFramesLeft = 0; return; }
     const ps = cloth.particles;
     for (let i = 0; i < ps.length; i++) {
         const p = ps[i];
@@ -1532,6 +1579,31 @@ function applyShakeImpulse() {
     }
     shakeFramesLeft--;
 }
+
+/**
+ * 形状 → 缩放因子：把布料所有静止长度按 (1 + factor) 等比缩放。
+ * factor < 0：布"想"收缩 → 表面绷紧、出现细密褶皱（类似 Blender 的 shrink_min）
+ * factor > 0：布"想"膨胀 → 变得松弛、被悬挂点拖住（类似 shrink_max）
+ * 之所以走求解器而不是直接改 objects：求解器内部按"比例增量"应用，
+ * 可以和塑性形变、撕裂并存，反复拖动滑块也不会重复缩放。
+ */
+function applyShapeScale() {
+    if (!cloth) return;
+    // 记在布料上：新建的布（点"生成"之后）在第一次 simulate 创建求解器时要用到它，
+    // 否则会出现"滑块停在 -0.3、布却是原始尺寸"的假死状态
+    cloth._wantShape = shapeFactor;
+    if (!cloth._solver) return;
+    cloth._solver.setShapeScale(shapeFactor);
+}
+
+/** 开局把所有滑杆归位（含形状缩放因子），避免出现空白/NaN 的控件 */
+function syncShapeSliderFromState() {
+    if (!shapeScaleSlider) return;
+    shapeScaleSlider.value = shapeFactor;
+    const disp = document.getElementById("shapeScaleValue");
+    if (disp) disp.textContent = (Number.isFinite(shapeFactor) ? shapeFactor : 0).toFixed(3);
+}
+syncShapeSliderFromState();
 
 if (btnShake) btnShake.onclick = shakeCloth;
 if (btnSelfCheck) btnSelfCheck.onclick = () => { if (typeof runSelfCheck === "function") runSelfCheck(); };
@@ -2142,8 +2214,15 @@ function applyPresetToSliders(preset) {
     const setV = (id, val, dispId, fmt) => {
         const el = document.getElementById(id);
         const dv = dispId ? document.getElementById(dispId) : null;
-        if (el) el.value = val;
-        if (dv) dv.textContent = fmt ? fmt(val) : val;
+        // 兜底：预设里缺字段 / 值是 undefined 时，退回滑杆自己的默认值，
+        // 否则 el.value = undefined 会让滑杆变成 NaN（这就是"开局显示 NaN"的来源）
+        let v = val;
+        if (!Number.isFinite(typeof v === "number" ? v : parseFloat(v))) {
+            v = el ? parseFloat(el.defaultValue) : 0;
+            if (!Number.isFinite(v)) v = 0;
+        }
+        if (el) el.value = v;
+        if (dv) dv.textContent = fmt ? fmt(v) : v;
     };
     const p = { ...physicsExtraDefaults, ...preset };
 
@@ -2170,6 +2249,11 @@ function applyPresetToSliders(preset) {
     setV("airDampingExp",       p.airExp,     "airDampingExpValue",      v => parseFloat(v).toFixed(2));
     setV("maxVelocity",         p.maxVel,     "maxVelocityValue",        v => parseFloat(v).toFixed(2));
     setV("velocityRetention",   p.velRet,     "velocityRetentionValue",  v => parseFloat(v).toFixed(3));
+    // 形状缩放：它属于「造型工具」而不是面料属性，预设里不写 shape，
+    // 所以切预设时**保留用户当前值**（不会被拉回 0）。
+    const shapeVal = Number.isFinite(preset.shape) ? preset.shape
+        : (Number.isFinite(shapeFactor) ? shapeFactor : 0);
+    setV("shapeScale", shapeVal, "shapeScaleValue", v => parseFloat(v).toFixed(3));
 
     // 同步 JS 变量
     plasticityRate     = p.plRate;
@@ -2191,10 +2275,14 @@ function applyPresetToSliders(preset) {
     airDampingExp      = p.airExp;
     maxVelocity        = p.maxVel;
     velocityRetention  = p.velRet;
+    // 形状缩放：预设里没有就按 0（不缺省改动已有布料）
+    shapeFactor = Number.isFinite(shapeVal) ? shapeVal : 0;
 
     if (preset.hz) accumulator = 0;
     // 🪶 换预设等于换了物理参数，唤醒低配求解器
     if (cloth) cloth.wake();
+    // 形状缩放要真的作用到静止长度上（求解器内部按比例增量应用，可反复调用）
+    applyShapeScale();
 }
 
 physicsPresetSelect.onchange = () => {
@@ -2812,29 +2900,52 @@ function refreshImageTexture() {
     imageTexture.wrapS = THREE.ClampToEdgeWrapping;
     imageTexture.wrapT = THREE.ClampToEdgeWrapping;
     if ('colorSpace' in imageTexture) imageTexture.colorSpace = THREE.SRGBColorSpace;
+    // 🎥 各向异性过滤：布料在 3D 视角里经常是斜看过去（掠射角），
+    // 只靠双线性 mipmap 会在斜角上把印花拖成一片糊 / 出现莫尔条纹，
+    // 看起来就像"贴图撕裂"。开到显卡上限（通常 16×）只在采样阶段多花极少的代价。
+    if (renderer && renderer.capabilities) {
+        imageTexture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    }
     imageTexture.needsUpdate = true;
 
     if (thicknessEnabled) updateThicknessMesh();
 }
 
+// 🎥 弱透视相机参数：参考 Blender 视图的"接近正交"手感
+//    fov 越小、相机越远 → 近大远小越弱。17° ≈ 长焦镜头，1.3 世界单位的物体
+//    在 8.7 单位外，边缘和中心的透视差异不到 3%，看起来几乎是平直的正视图。
+const WEAK_FOV_DEG = 17;
+const WEAK_FOV_RAD = WEAK_FOV_DEG * Math.PI / 180;
+
 function updateCamera() {
     zoom = parseFloat(zoomSlider.value);
     camX = parseFloat(camXSlider.value);
     camY = parseFloat(camYSlider.value);
-    camZ = 3;
 
     if (!camera) return;
 
     const aspect = CANVAS_W / Math.max(1, CANVAS_H);
-    // 缩到 0 时给一个极小尺寸，避免正交相机矩阵退化（画面会变成空白但不报错）
+    // 缩到 0 时给一个极小尺寸，避免投影矩阵退化（画面会变成空白但不报错）
     const size = 1.3 * Math.max(zoom, 0.002);
 
-    if (aspect >= 1) {
-        camera.left = -size * aspect; camera.right = size * aspect;
-        camera.top = size; camera.bottom = -size;
+    if (camera.isPerspectiveCamera) {
+        // 需要显示的"半高"（世界单位）→ 由 fov 反推相机距离，二者一一对应，
+        // 所以缩放（推拉）只改变距离，透视强度保持不变（不会越放大越夸张）。
+        const halfH = (aspect >= 1) ? size : size / aspect;
+        camera.fov = WEAK_FOV_DEG;
+        camera.aspect = aspect;
+        camera.near = 0.05;
+        camera.far = 400;
+        camZ = halfH / Math.tan(WEAK_FOV_RAD / 2);
     } else {
-        camera.left = -size; camera.right = size;
-        camera.top = size / aspect; camera.bottom = -size / aspect;
+        if (aspect >= 1) {
+            camera.left = -size * aspect; camera.right = size * aspect;
+            camera.top = size; camera.bottom = -size;
+        } else {
+            camera.left = -size; camera.right = size;
+            camera.top = size / aspect; camera.bottom = -size / aspect;
+        }
+        camZ = 3;
     }
     camera.position.set(camX, camY, camZ);
     camera.updateProjectionMatrix();
@@ -2879,7 +2990,9 @@ toggleShadow.onchange = () => {
     if (clothMesh) clothMesh.castShadow = shadowEnabled;
     if (thicknessMesh) thicknessMesh.castShadow = shadowEnabled;
     if (outlineMesh) outlineMesh.castShadow = shadowEnabled;
+    // 🟫 地面：开阴影时显示（此时能看到投影；地板本身也可见）
     if (groundMesh) groundMesh.visible = shadowEnabled;
+    if (groundShadowMesh) groundShadowMesh.visible = shadowEnabled;
     if (backWallMesh) backWallMesh.visible = shadowEnabled;
 };
 
@@ -5339,13 +5452,16 @@ function updateOutlineMesh() {
     if (!outlineMesh) {
         outlineMat = new THREE.MeshBasicMaterial({
             color: outlineColorInput.value,
+            // 描边是"反向壳"：必须只画背面、且不写深度，否则它会把布料正面盖住
             side: THREE.BackSide,
             transparent: clothOpacity < 1.0,
             opacity: clothOpacity,
-            depthWrite: clothOpacity >= 1.0
+            depthWrite: false,
+            depthTest: true
         });
         outlineMesh = new THREE.Mesh(clothMesh.geometry.clone(), outlineMat);
         outlineMesh.frustumCulled = false;
+        outlineMesh.renderOrder = 2;       // 永远画在布料之后
         outlineMesh.castShadow = shadowEnabled;
         (sceneHolder || scene).add(outlineMesh);
     }
@@ -5378,19 +5494,23 @@ function updateThicknessMesh() {
     if (!thicknessMesh) {
         thicknessMesh = new THREE.Mesh(cloth.thicknessGeometry, null);
         thicknessMesh.frustumCulled = false;
-        thicknessMesh.renderOrder = -1;
+        // ⚠️ 厚度壳**必须画在正面之后**：
+        // 以前是 renderOrder = -1（先画），它的底面是沿法线**向外偏移**的一层，
+        // 于是它会把正面的像素盖住 —— 表现就是"正面被剔除、只看到背面的图案"（或者直接镂空）。
+        // 现在就让它跟在正面后面画，并且不写深度，只在正面已经画完的像素上叠加侧壁。
+        thicknessMesh.renderOrder = 1;
         thicknessMesh.castShadow = shadowEnabled;
         (sceneHolder || scene).add(thicknessMesh);
     }
     if (thicknessMat) thicknessMat.dispose();
     const useTex = thicknessTexEnabled && textureEnabled && imageTexture;
-    const isTrans = clothOpacity < 1.0 || pbrAlphaTexture !== null;
-    const depthW = clothOpacity >= 1.0 && pbrAlphaTexture === null;
+    const isTrans = clothOpacity < 1.0;
+    const depthW = false;          // 厚度壳不写深度（避免与布料正/反面互相剔除）
     if (lightEnabled) {
         thicknessMat = new THREE.MeshStandardMaterial({
             color: useTex ? 0xffffff : thicknessColorInput.value,
             map: useTex ? imageTexture : null,
-            side: THREE.DoubleSide,
+            side: THREE.DoubleSide,          // 双面渲染：不做背面剔除
             roughness: parseFloat(roughnessSlider.value),
             metalness: parseFloat(metalnessSlider.value),
             flatShading: flatShadingEnabled,
@@ -5398,6 +5518,7 @@ function updateThicknessMesh() {
             transparent: isTrans,
             opacity: pbrAlphaTexture ? Math.max(clothOpacity, 0.15) : clothOpacity,
             depthWrite: depthW,
+            depthTest: true,
             normalMap: pbrBaseNormalTexture,
             normalScale: new THREE.Vector2(pbrNormalScale, pbrNormalScale),
             alphaMap: pbrAlphaTexture,
@@ -5407,7 +5528,7 @@ function updateThicknessMesh() {
         thicknessMat = new THREE.MeshBasicMaterial({
             color: useTex ? 0xffffff : thicknessColorInput.value,
             map: useTex ? imageTexture : null,
-            side: THREE.DoubleSide,
+            side: THREE.DoubleSide,          // 双面渲染：不做背面剔除
             wireframe: showGrid,
             transparent: isTrans,
             opacity: pbrAlphaTexture ? Math.max(clothOpacity, 0.15) : clothOpacity,
@@ -5416,7 +5537,7 @@ function updateThicknessMesh() {
             alphaTest: pbrAlphaTexture ? 0.5 : 0
         });
     }
-    thicknessMesh.material = thicknessMat;
+    thicknessMesh.material = applyDoubleSide(thicknessMat);
 }
 
 lightStyleSelect.onchange = () => {
@@ -5469,6 +5590,10 @@ function makeFishnetAlphaMap() {
  * 很容易分不清哪一面朝自己。这里用 gl_FrontFacing 在片元阶段把背面压暗并轻微去饱和，
  * 不需要第二套材质、也不影响正面颜色。
  * 注意要挂到已有 onBeforeCompile 之上（链式），不能覆盖它（那会丢掉法线/水珠/镭射注入）。
+ *
+ * ⚠️ 千万别在片元里用 uniform 判断（`uBackShade > 0.001`）后**自定义 secondpass 的宏**：
+ * 那个分支只有在 uBackShade 命中时才动 gl_FragColor，本身无害；但这里保留纯 uniform
+ * 是为了让 customProgramCacheKey 稳定（不因运行时数值变化而重编译）。
  */
 function installBackShade(mat) {
     if (!mat || mat.userData._backShade) return;
@@ -5476,17 +5601,26 @@ function installBackShade(mat) {
     const prev = mat.onBeforeCompile;
     const patch = (shader) => {
         shader.uniforms.uBackShade = { value: backShadeStrength };
+        shader.uniforms.uBackHide = { value: backHidePrint };
         shader.fragmentShader = shader.fragmentShader.replace(
             '#include <common>',
-            '#include <common>\nuniform float uBackShade;\n'
+            '#include <common>\nuniform float uBackShade;\nuniform float uBackHide;\n'
         );
         shader.fragmentShader = shader.fragmentShader.replace(
             '#include <dithering_fragment>',
             `#include <dithering_fragment>
-            if (!gl_FrontFacing && uBackShade > 0.001) {
-                float backGray = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
-                vec3 backDesat = mix(vec3(backGray), gl_FragColor.rgb, 0.82);
-                gl_FragColor.rgb = backDesat * (1.0 - uBackShade);
+            if (!gl_FrontFacing) {
+                // 背面用"素布底色"收一下：正面印花正常，翻过去那层不再把镜像印花透成一重影
+                if (uBackHide > 0.001) {
+                    float backLum = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
+                    vec3 clothTone = vec3(backLum) * 0.92 + vec3(0.855, 0.845, 0.835) * 0.08;
+                    gl_FragColor.rgb = mix(gl_FragColor.rgb, clothTone, uBackHide);
+                }
+                if (uBackShade > 0.001) {
+                    float backGray = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
+                    vec3 backDesat = mix(vec3(backGray), gl_FragColor.rgb, 0.82);
+                    gl_FragColor.rgb = backDesat * (1.0 - uBackShade);
+                }
             }
             `
         );
@@ -5504,6 +5638,50 @@ function installBackShade(mat) {
     mat.needsUpdate = true;
 }
 
+/**
+ * 🎭 强制双面渲染（关闭背面剔除）
+ * ------------------------------------------------------------------
+ * 布料只有一层三角面；只要材质的 side 变成 FrontSide（或因为法线朝向反了、
+ * 模型矩阵出现负行列式），正面多边形就会被剔除 —— 表现就是"正面镂空，只看到背面"。
+ * 这里把所有布料相关材质统一钉死成 DoubleSide + 正常深度测试，
+ * 不动拓扑 / UV / 贴图。
+ */
+function applyDoubleSide(mat) {
+    if (!mat) return mat;
+    mat.side = THREE.DoubleSide;
+    mat.depthTest = true;              // 仍然做深度测试，避免"视觉穿模"
+    // 注意：这里不强制 depthWrite，透明材质那边已经单独处理过
+    if (mat.shadowSide === undefined) mat.shadowSide = THREE.DoubleSide;
+    else mat.shadowSide = THREE.DoubleSide;
+    mat.needsUpdate = true;
+    return mat;
+}
+
+function updateClothDepthPolicy(mat) {
+    if (!mat || !cloth) return mat;
+    const opacity = Number.isFinite(clothOpacity) ? clothOpacity : 1.0;
+    const opaqueEnough = opacity >= 0.999;
+    const hasAlphaMask = !!(mat.alphaMap && mat.alphaTest > 0) || !!mat.alphaTest;
+    // 只要"不透明 或 有 alphaTest 镂空"，就必须写深度 —— 否则前后两层都会被画出来，
+    // 表现为"背面褶皱透出来 / 穿模"（物理上其实没穿，只是深度没挡住）。
+    if (opaqueEnough || hasAlphaMask) {
+        mat.transparent = false;
+        mat.opacity = 1.0;
+        mat.depthWrite = true;
+        mat.side = THREE.DoubleSide;       // 保持双面，但只是"同一层的前后两个面"都画
+    } else {
+        // 半透明：保留深度写入，只让 alpha 决定通透；
+        // 不写深度会重新出现"内部面片透出来"，所以这里也强制 depthWrite = true。
+        mat.transparent = true;
+        mat.opacity = opacity;
+        mat.depthWrite = true;
+    }
+    mat.depthTest = true;
+    mat.alphaToCoverage = false;
+    mat.needsUpdate = true;
+    return mat;
+}
+
 function switchClothMaterial() {
     if (!clothMesh) return;
     clothMesh.material.dispose();
@@ -5511,8 +5689,12 @@ function switchClothMaterial() {
     if (cloth) cloth._forceNormals = true;
     const rough = parseFloat(roughnessSlider.value);
     const metal = parseFloat(metalnessSlider.value);
-    const isTrans = clothOpacity < 1.0 || pbrAlphaTexture !== null || (tearTexture !== null);
-    const depthW = clothOpacity >= 1.0 && pbrAlphaTexture === null && tearTexture === null;
+    const isTrans = clothOpacity < 1.0;
+    // ⚠️ 曾经这里写的是 `pbrAlphaTexture === null && tearTexture === null`：
+    // 但 tearCanvas / tearTexture 在启动时就创建，永远非 null，
+    // 于是布料被永久判成"半透明 + 不写深度" —— 前后两层都会画出来，
+    // 表现正是"背面褶皱透过正面显示 / 穿模"。镂空贴图靠 alphaTest 就够了。
+    const depthW = true;
     const hasPbr = pbrBaseNormalTexture !== null || pbrNoiseNormalTexture !== null;
     const hasWater = waterEnabled && lightEnabled;
     const needsShader = hasPbr || hasWater || pbrAlphaTexture !== null || holoEnabled;
@@ -5789,6 +5971,8 @@ function switchClothMaterial() {
     mat.needsUpdate = true;
     clothMesh.material = mat;
     installBackShade(mat);          // 🪞 正反面区分（对所有材质类型都生效）
+    applyDoubleSide(mat);           // 🎭 关闭背面剔除（正面永远不被剔除）
+    updateClothDepthPolicy(mat);    // 🥞 开启深度遮挡（背面褶皱不透出 / 不穿模）
     clothMesh.castShadow = shadowEnabled;
     clothMesh.receiveShadow = shadowEnabled;
     if (thicknessEnabled) updateThicknessMesh();
@@ -5935,7 +6119,7 @@ function ensureBlurTargets(w, h) {
     blurNeedsReset = true;
 }
 
-function renderBlurFrame() {
+function renderBlurFrame(skipVelocity) {
     const savedColor = renderer.getClearColor(new THREE.Color());
     const savedAlpha = renderer.getClearAlpha();
 
@@ -5944,7 +6128,7 @@ function renderBlurFrame() {
     renderer.clear();
     renderer.render(scene, camera);
 
-    if (velocityMesh && velocityMesh.geometry && velocityMesh.geometry.attributes.prevPosition) {
+    if (!skipVelocity && velocityMesh && velocityMesh.geometry && velocityMesh.geometry.attributes.prevPosition) {
         let clearCol;
         if (THREE.ColorManagement && THREE.LinearSRGBColorSpace) {
             clearCol = new THREE.Color().setRGB(0.5, 0.5, 0.5, THREE.LinearSRGBColorSpace);
@@ -5960,7 +6144,9 @@ function renderBlurFrame() {
 
     postMat.uniforms.tColor.value = rtScene.texture;
     postMat.uniforms.tVelocity.value = rtVelocity.texture;
-    postMat.uniforms.strength.value = blurStrength;
+    // 跳过 velocity pass 时，rtVelocity 里还是上一帧（旧视角）的假速度，
+    // 所以必须把强度归零，否则照样会沿那条假速度拖影
+    postMat.uniforms.strength.value = skipVelocity ? 0 : blurStrength;
 
     renderer.setRenderTarget(null);
     renderer.setClearColor(0x000000, 0);
@@ -5980,13 +6166,35 @@ let cam3DYaw = 0;        // 环绕（度）
 let cam3DPanX = 0;
 let cam3DPanY = 0;
 let cam3DZoom = 1;       // 推拉倍数
+// 镜头刚动过的守护时间（毫秒）：这段时间内不做动态模糊，
+// 因为速度缓冲里的 prevPosition 还停留在旧视角之下，算出来的速度是假的
+let cameraMovedUntil = 0;
 let cam3DEnabled = false;
-let cam3DTouchLast = null;
 // 🎥 手机拖动镜头时的上一个触点
+let cam3DTouchLast = null;
+// 俯仰上限（度）：弱透视展示视角，禁止夸张的仰视/俯视
+const CAM3D_PITCH_LIMIT = 40;
 
 // 🧷 解算时可移动固定点 → 用彩色小圆点标出它们的位置
 let pinDotsMesh = null;
 let pinDotsGeo = null;
+
+// 🟫 地面显示开关：默认关（和你现在看到的一致），打开后在布料下方显示柔色地板
+// 并接收阴影，给模型一个"地面"参考（3D 视角里尤其需要）
+let groundVisible = false;
+
+/** 按开关 / 地面高度同步地面两层（地板 + 阴影层） */
+function updateGroundDisplay() {
+    const y = Number.isFinite(groundY) ? groundY : -1.5;
+    if (groundMesh) {
+        groundMesh.visible = groundVisible;
+        groundMesh.position.y = y;
+    }
+    if (groundShadowMesh) {
+        groundShadowMesh.visible = groundVisible && !!shadowEnabled;
+        groundShadowMesh.position.y = y + 0.01;
+    }
+}
 
 function updatePinDots() {
     if (!scene) return;
@@ -6077,7 +6285,134 @@ function applyCamera3D() {
     sceneHolder.position.set(cam3DPanX, cam3DPanY, 0);
     sceneHolder.scale.setScalar(cam3DZoom);
     if (cloth) cloth._forceNormals = true;
+    // 🎯 镜头一动，速度缓冲里的"上一帧位置"就作废了：
+    // 那个速度缓冲是用**同一个模型矩阵**分别变换 position / prevPosition 得到的，
+    // 只对"布料自己动"有效；一旦 holder 的矩阵变了，两种采样就落在不同坐标系里，
+    // 算出一个巨大的假速度 → 动态模糊沿这个方向狂拖，画面就是"硬折痕 / 贴图撕裂"，
+    // 停止转动后 prev == position → 速度归零 → 画面又恢复正常。与用户描述完全一致。
+    cameraMovedUntil = performance.now() + 150;
+    resetVelocityBuffer();
     updateCamera3DLabels();
+    drawAxisGizmo();
+}
+
+// ==========================================================
+// 🧭 坐标轴方位罗盘
+// ----------------------------------------------------------
+// 相机本身不动，是 sceneHolder 在转。所以罗盘只要把世界坐标轴用当前的
+// 俯仰/环绕变换一次，再正交投到屏幕平面即可（X 红 / Y 绿 / Z 蓝，与 Blender 一致）。
+// 纯 2D canvas 绘制，不额外开渲染 pass，3D 镜头关闭时整个隐藏。
+// ==========================================================
+const AXIS_GIZMO_COLORS = {
+    x: "#E5533D",      // 红
+    y: "#7CB342",      // 绿
+    z: "#3B82F6",      // 蓝
+    xNeg: "#F2A79A",
+    yNeg: "#B5D98A",
+    zNeg: "#9FC5F8"
+};
+
+function drawAxisGizmo() {
+    const wrap = document.getElementById("axisGizmoWrap");
+    const cv = document.getElementById("axisGizmo");
+    if (!wrap || !cv) return;
+    const show = cam3DEnabled && !editMode;
+    wrap.style.display = show ? "block" : "none";
+    if (!show) return;
+
+    const ctx = cv.getContext("2d");
+    if (!ctx) return;
+    const W = cv.width, H = cv.height;
+    const cx = W / 2, cy = H / 2;
+    const R = Math.min(W, H) * 0.34;
+    ctx.clearRect(0, 0, W, H);
+
+    const pitch = cam3DPitch * Math.PI / 180;
+    const yaw = cam3DYaw * Math.PI / 180;
+    // 与 sceneHolder.rotation.set(pitch, yaw, 0, "XYZ") 等价的旋转：
+    // 先绕 Y（环绕），再绕 X（俯仰）
+    const project = (vx, vy, vz) => {
+        const c1 = Math.cos(yaw), s1 = Math.sin(yaw);
+        let x1 = c1 * vx + s1 * vz;
+        let y1 = vy;
+        let z1 = -s1 * vx + c1 * vz;
+        const c2 = Math.cos(pitch), s2 = Math.sin(pitch);
+        const y2 = c2 * y1 - s2 * z1;
+        const z2 = s2 * y1 + c2 * z1;
+        // 相机沿 -Z 看：屏幕 x = 世界 x，屏幕 y = 世界 y（y 向上，canvas y 向下）
+        return { sx: cx + x1 * R, sy: cy - y2 * R, depth: z2 };
+    };
+
+    const axes = [
+        { key: "x", v: [1, 0, 0], label: "X" },
+        { key: "y", v: [0, 1, 0], label: "Y" },
+        { key: "z", v: [0, 0, 1], label: "Z" }
+    ];
+    const items = [];
+    for (const a of axes) {
+        const pos = project(a.v[0], a.v[1], a.v[2]);
+        const neg = project(-a.v[0], -a.v[1], -a.v[2]);
+        items.push({ ...a, pos, neg, kind: "pos" });
+    }
+    // 深度小的（更靠前）后画，保证近的盖住远的
+    items.sort((p, q) => q.pos.depth - p.pos.depth);
+
+    const drawAxis = (from, to, color, alpha, withLabel, label, dim) => {
+        const dx = to.sx - from.sx, dy = to.sy - from.sy;
+        const len = Math.hypot(dx, dy);
+        if (len < 0.6) return;
+        const ux = dx / len, uy = dy / len;
+        ctx.globalAlpha = alpha;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = dim ? 1.6 : 2.4;
+        ctx.beginPath();
+        ctx.moveTo(from.sx, from.sy);
+        ctx.lineTo(to.sx, to.sy);
+        ctx.stroke();
+        // 箭头
+        if (withLabel) {
+            const ah = dim ? 5 : 7;
+            ctx.beginPath();
+            ctx.moveTo(to.sx, to.sy);
+            ctx.lineTo(to.sx - ux * ah - uy * ah * 0.55, to.sy - uy * ah + ux * ah * 0.55);
+            ctx.lineTo(to.sx - ux * ah + uy * ah * 0.55, to.sy - uy * ah - ux * ah * 0.55);
+            ctx.closePath();
+            ctx.fillStyle = color;
+            ctx.fill();
+            // 轴名
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = color;
+            ctx.font = "bold 12px system-ui, -apple-system, sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(label, to.sx + ux * 9, to.sy + uy * 9);
+        }
+        ctx.globalAlpha = 1;
+    };
+
+    const origin = { sx: cx, sy: cy };
+    for (const it of items) {
+        // 负方向先画（细、淡），正方向后画（粗、带轴名）
+        drawAxis(origin, it.neg, AXIS_GIZMO_COLORS[it.key + "Neg"], 0.75, false, "", true);
+    }
+    for (const it of items) {
+        drawAxis(origin, it.pos, AXIS_GIZMO_COLORS[it.key], 1, true, it.label, false);
+    }
+    // 原点小球
+    ctx.fillStyle = "#8A8F98";
+    ctx.beginPath();
+    ctx.arc(cx, cy, 2.6, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+/** 把速度缓冲归零（prevPosition := position），并标记本帧末需要重新同步 */
+function resetVelocityBuffer() {
+    if (!cloth || !cloth.geometry) return;
+    const pos = cloth.geometry.attributes.position;
+    const prev = cloth.geometry.attributes.prevPosition;
+    if (!pos || !prev) return;
+    prev.array.set(pos.array);
+    prev.needsUpdate = true;
 }
 
 function updateCamera3DLabels() {
@@ -6091,8 +6426,7 @@ function updateCamera3DLabels() {
 
 function resetCamera3D() {
     cam3DPitch = 0; cam3DYaw = 0; cam3DPanX = 0; cam3DPanY = 0; cam3DZoom = 1;
-    applyCamera3D();
-}
+    applyCamera3D();}
 
 function bindCamera3DControls() {
     const host = document.querySelector(".canvasWrap");
@@ -6118,7 +6452,8 @@ function bindCamera3DControls() {
             cam3DPanY = Math.max(-2.5, Math.min(2.5, cam3DPanY - dy * k));
         } else {
             cam3DYaw = Math.max(-180, Math.min(180, cam3DYaw - dx * 0.35));
-            cam3DPitch = Math.max(-80, Math.min(80, cam3DPitch - dy * 0.28));
+            // 🎥 俯仰夹在 ±40°：弱透视正面展示，不做夸张的仰视/俯视
+            cam3DPitch = Math.max(-CAM3D_PITCH_LIMIT, Math.min(CAM3D_PITCH_LIMIT, cam3DPitch - dy * 0.28));
         }
         applyCamera3D();
         e.preventDefault();
@@ -6130,11 +6465,12 @@ function bindCamera3DControls() {
 
     // ---- 手机方向按钮（长按连续转动）----
     const step = 8;
+    const PITCH_LIMIT = CAM3D_PITCH_LIMIT;
     const actions = {
         cam3DLeft:  () => { cam3DYaw = Math.max(-180, cam3DYaw - step); },
         cam3DRight: () => { cam3DYaw = Math.min(180, cam3DYaw + step); },
-        cam3DUp:    () => { cam3DPitch = Math.min(80, cam3DPitch + step); },
-        cam3DDown:  () => { cam3DPitch = Math.max(-80, cam3DPitch - step); },
+        cam3DUp:    () => { cam3DPitch = Math.min(PITCH_LIMIT, cam3DPitch + step); },
+        cam3DDown:  () => { cam3DPitch = Math.max(-PITCH_LIMIT, cam3DPitch - step); },
         cam3DIn:    () => { cam3DZoom = Math.min(2.5, cam3DZoom * 1.10); },
         cam3DOut:   () => { cam3DZoom = Math.max(0.35, cam3DZoom * 0.90); }
     };
@@ -6168,6 +6504,8 @@ function bindCamera3DControls() {
                 draggingPins = false;
                 draggedParticles = [];
             }
+            // 🧭 罗盘跟随开关显示/隐藏
+            drawAxisGizmo();
         };
     }
 
@@ -6180,8 +6518,10 @@ function initThree() {
     scene.background = null;
     updateEnvironment();
 
-    camera = new THREE.OrthographicCamera(-1.3, 1.3, 1.3, -1.3, 0.1, 50);
-    camera.position.set(0, 0, 3);
+    // 🎥 弱透视相机（窄 fov + 远距离）：接近正交，但保留一点点立体感，
+    //    避免游戏那种夸张近大远小；具体焦距/距离在 updateCamera() 里按画布比例换算。
+    camera = new THREE.PerspectiveCamera(WEAK_FOV_DEG, CANVAS_W / Math.max(1, CANVAS_H), 0.05, 400);
+    camera.position.set(0, 0, 9);
 
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, lowSpecMode ? 1 : 2));
@@ -6203,13 +6543,32 @@ function initThree() {
     scene.add(sceneHolder);
 
     const groundGeo = new THREE.PlaneGeometry(20, 20);
-    const groundMat = new THREE.ShadowMaterial({ opacity: 0.3, transparent: true, depthWrite: false });
-    groundMesh = new THREE.Mesh(groundGeo, groundMat);
+    // 🟫 可见的地面：ShadowMaterial 只在"有阴影时"可见，平时整块透明 —— 用户看不到地面。
+    // 这里改成可见的柔色地板（接收阴影），再叠一层只负责阴影的 ShadowMaterial，
+    // 这样既有"地平线"参考，又能看清布料投下的影子。
+    const groundBaseMat = new THREE.MeshBasicMaterial({
+        color: 0xF3F4F6,
+        transparent: true,
+        opacity: 0.96,
+        depthWrite: true,
+        side: THREE.DoubleSide
+    });
+    groundMesh = new THREE.Mesh(groundGeo, groundBaseMat);
     groundMesh.rotation.x = -Math.PI / 2;
     groundMesh.position.y = -1.5;
     groundMesh.receiveShadow = true;
     groundMesh.visible = false;
     sceneHolder.add(groundMesh);
+
+    // 阴影层（略高于地板，避免与地板深度打架）
+    const groundShadowMat = new THREE.ShadowMaterial({ opacity: 0.28, transparent: true, depthWrite: false });
+    groundShadowMesh = new THREE.Mesh(groundGeo, groundShadowMat);
+    groundShadowMesh.rotation.x = -Math.PI / 2;
+    groundShadowMesh.position.y = -1.49;
+    groundShadowMesh.receiveShadow = true;
+    groundShadowMesh.visible = false;
+    groundShadowMesh.renderOrder = 2;
+    sceneHolder.add(groundShadowMesh);
 
     const wallGeo = new THREE.PlaneGeometry(30, 30);
     const wallMat = new THREE.ShadowMaterial({
@@ -6506,6 +6865,8 @@ function getNDC(e) {
 }
 
 const dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+// 复用的逆矩阵缓冲（避免每次拖拽分配新 Matrix4）
+const _holderInv = new THREE.Matrix4();
 
 // ⌨️ 1~8 快捷键：依次套用 上边整条/2点/3点/5点/四角/全框/左右两点/恢复默认
 const QUICK_PIN_KEYS = {
@@ -6621,6 +6982,11 @@ function tryStartDrag(e) {
         const intersectRes = raycaster.ray.intersectPlane(plane, hitPoint);
         if (!intersectRes) return false;
     }
+    // 🎯 关键修复：命中点必须换算回 holder 的局部坐标！
+    // hits[0].point 是**世界坐标**，而 cloth.particles 存的是 holder 局部坐标。
+    // 3D 镜头转过之后两个坐标系不再重合，直接比距离就会整体镜像/旋转，
+    // 表现正是"点右侧却选中了左侧的顶点"。其它拖拽入口都做了这个逆变换，只有这里漏了。
+    if (sceneHolder) hitPoint.applyMatrix4(_holderInv.copy(sceneHolder.matrixWorld).invert());
 
     draggedParticles = [];
     draggingPins = false;
@@ -8406,13 +8772,14 @@ for (let j = 0; j <= resY; j++) {
 
         const mat = new THREE.MeshBasicMaterial({
             color: new THREE.Color(currentClothColor), side: THREE.DoubleSide, wireframe: showGrid,
-            transparent: clothOpacity < 1.0 || pbrAlphaTexture !== null || tearTexture !== null,
-            opacity: pbrAlphaTexture ? Math.max(clothOpacity, 0.15) : clothOpacity,
-            depthWrite: clothOpacity >= 1.0 && pbrAlphaTexture === null && tearTexture === null,
+            transparent: false,                 // 先按不透明处理，具体由 updateClothDepthPolicy 决定
+            opacity: 1.0,
+            depthWrite: true,                   // 必须写深度，否则背面褶皱会透出来
             alphaMap: tearTexture !== null ? tearTexture : pbrAlphaTexture,
             alphaTest: (tearTexture !== null || pbrAlphaTexture !== null) ? 0.05 : 0
         });
-        this.mesh = new THREE.Mesh(this.geometry, mat);
+        this.mesh = new THREE.Mesh(this.geometry, applyDoubleSide(mat));
+        updateClothDepthPolicy(mat);
         // 🎥 3D 视角旋转时布料会转出包围球（包围球是按初始平面算的），
         // 不关掉视锥剔除就会整块突然消失 —— 这就是"转一下面被剔除"的原因
         this.mesh.frustumCulled = false;
@@ -8704,6 +9071,9 @@ addBendSpring(i, j) {
     simulate(dt) {
         if (!this._solver) {
             this._solver = new ClothSolver({ cloth: this, host: clothSolverHost });
+            // 新布料第一次解算：把用户当前的「形状缩放因子」补上（不重置他的设置）
+            const want = Number.isFinite(this._wantShape) ? this._wantShape : shapeFactor;
+            if (Number.isFinite(want) && want !== 0) this._solver.setShapeScale(want);
         }
         this._solver.setProfile(lowSpecMode ? SOLVER_PROFILES.lowSpec : SOLVER_PROFILES.normal);
         this._solver.simulate(dt);
@@ -8729,6 +9099,8 @@ document.getElementById("genBtn").onclick = () => {
     const bounds = { minX: -maxW / 2, maxX: maxW / 2, minY: -maxH / 2, maxY: maxH / 2 };
 
     cloth = new Cloth(bounds, pinStrokeList, meshRes);
+    // 重新生成时保留用户当前的形状缩放因子（滑块不动、布也直接是缩放后的尺寸）
+    cloth._wantShape = shapeFactor;
     clothMesh = cloth.mesh;
     (sceneHolder || scene).add(clothMesh);
 
@@ -8931,6 +9303,7 @@ document.getElementById("resetBtn").onclick = () => {
     if (ambientLight) ambientLight.visible = false;
     if (dirLight) dirLight.visible = false;
     if (groundMesh) groundMesh.visible = false;
+    if (groundShadowMesh) groundShadowMesh.visible = false;
     if (backWallMesh) backWallMesh.visible = false;
     toggleTex.checked = false; toggleLight.checked = false; toggleShadow.checked = false;
     toggleCollision.checked = false; toggleOutline.checked = false; toggleGrid.checked = false; toggleThickness.checked = false;
@@ -9054,6 +9427,11 @@ document.getElementById("windSpatialFreq").value = 4; windSpatialFreq = 4;
 document.getElementById("windZ").value = 0; windZ = 0;
 document.getElementById("gravityAngle").value = 0; gravityAngle = 0;
 document.getElementById("toggleGround").checked = true; groundCollisionEnabled = true;
+    // 🟫 地面显示开关也回到默认（关）
+    groundVisible = false;
+    const groundShowToggle = document.getElementById("toggleGroundShow");
+    if (groundShowToggle) groundShowToggle.checked = false;
+    updateGroundDisplay();
 document.getElementById("groundY").value = -1.5; groundY = -1.5;
 document.getElementById("groundFriction").value = 0.8; groundFriction = 0.8;
 document.getElementById("collisionFriction").value = 0.6; collisionFriction = 0.6;
@@ -9061,6 +9439,10 @@ document.getElementById("dragStrength").value = 0.4; dragStrength = 0.4;
 document.getElementById("airDampingExp").value = 0.2; airDampingExp = 0.2;
 document.getElementById("maxVelocity").value = 0.2; maxVelocity = 0.2;
 document.getElementById("velocityRetention").value = 1.0; velocityRetention = 1.0;
+    // 「重置全部」是显式的全量复原：形状缩放因子也回 0
+    // （和「生成布料」不同 —— 那边会保留用户当前的因子）
+    shapeFactor = 0;
+    if (typeof syncShapeSliderFromState === "function") syncShapeSliderFromState();
     if (rotXSlider) { rotXSlider.value = 0; rotXValue.textContent = "0°"; prevRotX = 0; }
     if (rotZSlider) { rotZSlider.value = 0; rotZValue.textContent = "0°"; prevRotZ = 0; }
     if (resetRotBtn) resetRotBtn.click();
@@ -9099,6 +9481,16 @@ bindSlider("camY", "camYValue", updateCamera);
 bindSlider("pinRadius", "pinRadiusValue", redrawPreview, (v) => parseFloat(v).toFixed(3));
 bindSlider("simMult", "simMultValue", null, (v) => parseFloat(v).toFixed(2));
 bindSlider("meshRes", "meshResValue", null, (v) => parseInt(v));
+
+// 🫨 抖动力度 / 时长：只影响下一次点「抖一抖」的冲量，不打断当前解算
+bindSlider("shakeAmp", "shakeAmpValue", (v) => { if (SHAKE) SHAKE.amp = v; }, (v) => parseFloat(v).toFixed(1));
+bindSlider("shakeFrames", "shakeFramesValue", (v) => { if (SHAKE) SHAKE.frames = v; }, (v) => parseInt(v));
+
+// 🔻 形状缩放因子：实时改变所有静止长度（负=收紧起皱 / 正=松弛鼓胀）
+bindSlider("shapeScale", "shapeScaleValue", (v) => {
+    shapeFactor = Number.isFinite(v) ? v : 0;
+    applyShapeScale();
+}, (v) => parseFloat(v).toFixed(3));
 // 用户一旦手动调过网格密度，后续生成就不再被预设覆盖
 if (meshResSlider) meshResSlider.addEventListener("input", () => { userTouchedMeshRes = true; });
 if (meshResSlider) meshResSlider.addEventListener("change", () => { userTouchedMeshRes = true; });
@@ -9180,7 +9572,7 @@ bindPhysSlider("springDamping",       "springDampingValue",       v => springDam
 bindPhysSlider("windSpatialFreq",     "windSpatialFreqValue",     v => windSpatialFreq = v, v => parseFloat(v).toFixed(1));
 bindPhysSlider("windZ",               "windZValue",               v => windZ = v);
 bindPhysSlider("gravityAngle",        "gravityAngleValue",        v => gravityAngle = v, v => parseInt(v) + "°");
-bindPhysSlider("groundY",             "groundYValue",             v => groundY = v);
+bindPhysSlider("groundY",             "groundYValue",             v => { groundY = v; updateGroundDisplay(); });
 bindPhysSlider("groundFriction",      "groundFrictionValue",      v => groundFriction = v);
 bindPhysSlider("collisionFriction",   "collisionFrictionValue",   v => collisionFriction = v);
 bindPhysSlider("dragStrength",        "dragStrengthValue",        v => dragStrength = v);
@@ -9258,6 +9650,11 @@ bindToggle("toggleThicknessTex", (checked) => {
     thicknessTexEnabled = checked;
     document.getElementById("thicknessColorCtrl").style.display = (thicknessEnabled && !checked) ? "block" : "none";
     updateThicknessMesh();
+});
+
+bindToggle("toggleGroundShow", (checked) => {
+    groundVisible = checked;
+    updateGroundDisplay();
 });
 
 bindToggle("toggleOutline", (checked) => { outlineEnabled = checked; updateOutlineMesh(); });
@@ -9515,8 +9912,17 @@ function animate() {
     updatePinDots();
 
     if (renderer) {
-        // 🪶 低配模式跳过全屏后处理（动态模糊是纯额外开销）
-        if (blurEnabled && !lowSpecMode && rtScene && postMat) renderBlurFrame();
+        // 🎥 镜头刚动过：速度缓冲里的 prevPosition 是旧视角下的位置，算出来的"速度"是假的
+        // → 这段时间内跳过速度缓冲（直接渲染彩色画面），避免动态模糊沿假速度狂拖。
+        const cameraJustMoved = performance.now() < cameraMovedUntil;
+        if (blurEnabled && !lowSpecMode && rtScene && postMat) {
+            if (cameraJustMoved) {
+                resetVelocityBuffer();
+                renderBlurFrame(true);       // 传 true = 本帧速度沿用 0（跳过 velocity pass）
+            } else {
+                renderBlurFrame();
+            }
+        }
         else { renderer.setRenderTarget(null); renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.render(scene, camera); }
     }
 }
